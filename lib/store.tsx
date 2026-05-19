@@ -3,7 +3,8 @@ import React, { createContext, useContext, useEffect, useMemo, useState, useCall
 import type {
   AppState, Task, User, Notification, AllowanceHistory, NotificationSettings, RepeatType, TaskTemplate, RedemptionRequest,
 } from "./types";
-import { createDemoState } from "./demoData";
+import { createDemoState, createEmptyState } from "./demoData";
+import { hashPin, verifyPin } from "./pin";
 import { api } from "./api";
 import { rolloverIfNeeded } from "./dailyRollover";
 import { evaluateBadges } from "./badges";
@@ -24,7 +25,7 @@ function maybeFireOS(settings: NotificationSettings, kind: OsKind, title: string
 }
 
 function mergeWithDefaults(parsed: Partial<AppState>): AppState {
-  const defaults = createDemoState();
+  const defaults = createEmptyState();
   return {
     ...defaults,
     ...parsed,
@@ -33,12 +34,25 @@ function mergeWithDefaults(parsed: Partial<AppState>): AppState {
   };
 }
 
+export interface OnboardingChild {
+  name: string;
+  avatar: string;
+}
+
 interface Ctx {
   state: AppState;
   currentUser: User | null;
   setCurrentUser: (id: string | null) => void;
   resetDemo: () => void;
   signOut: () => Promise<void>;
+  hydrated: boolean;
+  needsOnboarding: boolean;
+  parentUnlocked: boolean;
+  completeOnboarding: (children: OnboardingChild[], pin: string) => Promise<void>;
+  resetAll: () => Promise<void>;
+  setPin: (pin: string) => Promise<void>;
+  verifyPinAndUnlock: (pin: string) => Promise<boolean>;
+  lockParent: () => void;
   // tasks
   addTask: (t: Omit<Task, "id" | "status" | "createdAt">) => void;
   updateTask: (id: string, patch: Partial<Omit<Task, "id">>) => void;
@@ -69,9 +83,10 @@ interface Ctx {
 const StoreContext = createContext<Ctx | null>(null);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<AppState>(() => createDemoState());
+  const [state, setState] = useState<AppState>(() => createEmptyState());
   const [hydrated, setHydrated] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [parentUnlocked, setParentUnlocked] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // hydrate + rollover + realtime subscribe
@@ -82,7 +97,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       const loaded = await api.loadState();
       if (cancelled) return;
-      const base = loaded ? mergeWithDefaults(loaded) : createDemoState();
+      const base = loaded ? mergeWithDefaults(loaded) : createEmptyState();
       const rolled = rolloverIfNeeded(base);
       setState(rolled);
       setHydrated(true);
@@ -94,7 +109,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // セッション変化（サインアウト等）
       unsubAuth = api.onAuthChange((s) => {
         if (!s) {
-          setState(createDemoState());
+          setState(createEmptyState());
+          setParentUnlocked(false);
           setHydrated(false);
         }
       });
@@ -158,14 +174,57 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const setCurrentUser = useCallback((id: string | null) => setState((s) => ({ ...s, currentUserId: id })), []);
 
+  // 開発用：デモデータに置き換え。
   const resetDemo = useCallback(() => {
     const fresh = createDemoState();
     setState(fresh);
     void api.saveState(fresh);
   }, []);
 
+  // 全データを消してオンボーディングに戻す。
+  const resetAll = useCallback(async () => {
+    try { await api.clear(); } catch {}
+    const fresh = createEmptyState();
+    setState(fresh);
+    setParentUnlocked(false);
+    // parentPin が undefined になることで page 側が Onboarding を表示する
+  }, []);
+
+  // オンボーディング完了：子供プロフィール + PIN を確定。
+  const completeOnboarding = useCallback(async (children: OnboardingChild[], pin: string) => {
+    const pinValue = await hashPin(pin);
+    const fresh = createEmptyState();
+    const childUsers = children.map((c, i) => ({
+      id: `c${i + 1}`,
+      name: c.name.trim() || `こども${i + 1}`,
+      role: "child" as const,
+      avatar: c.avatar || "🧒",
+      level: 1, xp: 0, xpToNext: 300,
+      streakDays: 0, allowanceBalance: 0,
+    }));
+    const next: AppState = { ...fresh, users: [...childUsers, ...fresh.users], parentPin: pinValue };
+    setState(next);
+    setParentUnlocked(true); // 設定直後は親モードに入れる
+    await api.saveState(next);
+  }, []);
+
+  const setPin = useCallback(async (pin: string) => {
+    const pinValue = await hashPin(pin);
+    setState((s) => ({ ...s, parentPin: pinValue }));
+  }, []);
+
+  const verifyPinAndUnlock = useCallback(async (pin: string): Promise<boolean> => {
+    if (!state.parentPin) return false;
+    const ok = await verifyPin(pin, state.parentPin);
+    if (ok) setParentUnlocked(true);
+    return ok;
+  }, [state.parentPin]);
+
+  const lockParent = useCallback(() => setParentUnlocked(false), []);
+
   const signOut = useCallback(async () => {
     try { await api.signOut(); } catch {}
+    setParentUnlocked(false);
   }, []);
 
   const pushNotification = useCallback((n: Omit<Notification, "id" | "isRead" | "createdAt">) => {
@@ -417,8 +476,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const currentUser = useMemo(() => state.users.find((u) => u.id === state.currentUserId) ?? null, [state]);
 
+  const needsOnboarding = hydrated && !state.parentPin;
+
   const ctx: Ctx = {
     state, currentUser, setCurrentUser, resetDemo, signOut,
+    hydrated, needsOnboarding, parentUnlocked,
+    completeOnboarding, resetAll, setPin, verifyPinAndUnlock, lockParent,
     addTask, updateTask, deleteTask, moveTask, submitTask, approveTask, rejectTask,
     markNotificationRead, markAllRead, pushNotification, updateSettings,
     addTemplate, removeTemplate,

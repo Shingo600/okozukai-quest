@@ -3,6 +3,52 @@ import { todayLocal } from "./date";
 
 const today = () => todayLocal();
 
+// 本番運用用の「空」状態。親プリセット + テンプレ + ごほうび + バッジ枠だけ用意し、
+// 子供・タスク・履歴・通知は空。parentPin も未設定なのでオンボーディングが起動する。
+export const createEmptyState = (): AppState => ({
+  currentUserId: null,
+  users: [
+    { id: "p1", name: "ママ", role: "mother", avatar: "👩", level: 0, xp: 0, xpToNext: 0, streakDays: 0, allowanceBalance: 0 },
+    { id: "p2", name: "パパ", role: "father", avatar: "👨", level: 0, xp: 0, xpToNext: 0, streakDays: 0, allowanceBalance: 0 },
+  ],
+  tasks: [],
+  history: [],
+  notifications: [],
+  rewards: [
+    { id: "r1", title: "ゲームソフト", icon: "🎮", cost: 2000 },
+    { id: "r2", title: "マンガセット", icon: "📚", cost: 1500 },
+    { id: "r3", title: "文房具セット", icon: "✏️", cost: 800 },
+    { id: "r4", title: "おかしパーティー", icon: "🍭", cost: 500 },
+  ],
+  badges: [
+    { id: "b1", title: "はじめてのお手伝い", icon: "⭐", description: "初めてのお手伝い達成", acquired: false },
+    { id: "b2", title: "3日連続達成", icon: "🔥", description: "3日連続でクエスト達成", acquired: false },
+    { id: "b3", title: "おそうじ名人", icon: "🧹", description: "掃除タスク10回達成", acquired: false },
+    { id: "b4", title: "?????", icon: "🔒", description: "もっとがんばろう", acquired: false },
+  ],
+  taskTemplates: [
+    { id: "tpl1", title: "リビングの掃除機", icon: "🧹", reward: 50 },
+    { id: "tpl2", title: "食器を洗う", icon: "🍽️", reward: 50 },
+    { id: "tpl3", title: "犬の散歩", icon: "🐕", reward: 100 },
+    { id: "tpl4", title: "ゴミ出し", icon: "🗑️", reward: 50 },
+    { id: "tpl5", title: "お風呂掃除", icon: "🛁", reward: 100 },
+    { id: "tpl6", title: "お洗濯たたみ", icon: "👕", reward: 50 },
+    { id: "tpl7", title: "玄関の靴をそろえる", icon: "👟", reward: 20 },
+    { id: "tpl8", title: "おつかい", icon: "🛍️", reward: 100 },
+  ],
+  redemptions: [],
+  lastRolloverDate: today(),
+  settings: {
+    push: false,
+    onNewTask: true,
+    onSubmit: true,
+    onApproval: true,
+    reminder: true,
+    streak: true,
+    reminderTime: "18:00",
+  },
+});
+
 export const createDemoState = (): AppState => ({
   currentUserId: null,
   users: [

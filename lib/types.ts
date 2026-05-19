@@ -97,8 +97,14 @@ export interface NotificationSettings {
   reminderTime: string; // "HH:MM"
 }
 
+export interface ParentPin {
+  hash: string;
+  salt: string;
+}
+
 export interface AppState {
   currentUserId: string | null;
+  parentPin?: ParentPin;
   lastRolloverDate?: string;
   lastReminderDate?: string;
   taskOrder?: string[];

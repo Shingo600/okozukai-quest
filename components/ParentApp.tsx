@@ -5,6 +5,7 @@ import { ParentNav, type ParentTab } from "./BottomNav";
 import type { RepeatType, Task, User } from "@/lib/types";
 import { todayLocal } from "@/lib/date";
 import { requestNotificationPermission, getPermission } from "@/lib/notify";
+import { PinPad } from "./PinPad";
 
 export function ParentApp() {
   const { state, currentUser, setCurrentUser, approveTask, rejectTask } = useStore();
@@ -249,8 +250,9 @@ function ParentHistory() {
 }
 
 function SettingsPage({ user }: { user: User }) {
-  const { state, updateSettings, resetDemo, signOut } = useStore();
+  const { state, updateSettings, signOut, setPin, resetAll, lockParent, setCurrentUser } = useStore();
   const s = state.settings;
+  const [showPinChange, setShowPinChange] = useState(false);
   return (
     <div className="px-4 space-y-3">
       <div className="card px-4 py-4 flex items-center gap-3">
@@ -282,8 +284,33 @@ function SettingsPage({ user }: { user: User }) {
           className="text-sm font-bold bg-transparent text-parent-purpleDeep"
         />
       </div>
-      <button onClick={() => { if (confirm("デモデータを初期化しますか？")) resetDemo(); }} className="w-full text-xs text-rose-400 underline mt-4">デモデータを初期化</button>
-      <button onClick={() => { if (confirm("サインアウトしますか？")) void signOut(); }} className="w-full text-xs text-gray-500 underline mt-1">サインアウト</button>
+      <div className="text-xs text-gray-400 px-2 mt-4">セキュリティ</div>
+      <button onClick={() => setShowPinChange(true)} className="w-full card px-4 py-3 text-sm font-bold text-parent-purpleDeep">PIN を変更する</button>
+      <button onClick={() => { lockParent(); setCurrentUser(null); }} className="w-full card px-4 py-3 text-sm font-bold text-gray-700">親モードを終了</button>
+
+      <div className="text-xs text-gray-400 px-2 mt-4">アカウント</div>
+      <button
+        onClick={async () => {
+          if (!confirm("全データを消してセットアップからやり直します。よろしいですか？")) return;
+          if (!confirm("本当にすべて消えます。元に戻せません。続けますか？")) return;
+          await resetAll();
+        }}
+        className="w-full card px-4 py-3 text-sm font-bold text-rose-500"
+      >全データを初期化</button>
+      <button onClick={() => { if (confirm("サインアウトしますか？")) void signOut(); }} className="w-full text-xs text-gray-500 underline mt-2">サインアウト</button>
+
+      {showPinChange && (
+        <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center" onClick={() => setShowPinChange(false)}>
+          <div className="bg-white rounded-3xl max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <PinPad
+              mode="setup"
+              title="新しい PIN を設定"
+              onComplete={async (pin) => { await setPin(pin); setShowPinChange(false); }}
+              onCancel={() => setShowPinChange(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
