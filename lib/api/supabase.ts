@@ -1,5 +1,5 @@
 import type { AppState } from "../types";
-import type { DataAdapter, Session } from "./types";
+import type { DataAdapter } from "./types";
 import { getSupabase, hasSupabaseConfig } from "../supabaseClient";
 
 const TABLE = "family_states";

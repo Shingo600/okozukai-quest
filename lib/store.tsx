@@ -11,7 +11,7 @@ import { evaluateBadges } from "./badges";
 import { todayLocal } from "./date";
 import type { ToastItem } from "@/components/Toast";
 import { playSound, confettiBurst } from "./effects";
-import { fireOSNotification, requestNotificationPermission, getPermission } from "./notify";
+import { fireOSNotification, getPermission } from "./notify";
 import { hhmmLocal } from "./date";
 
 type OsKind = "newTask" | "submit" | "approval" | "reminder";

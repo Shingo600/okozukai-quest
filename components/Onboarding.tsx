@@ -10,7 +10,7 @@ const AVATAR_PRESETS = ["🧒", "👧", "👦", "🐱", "🐶", "🐰", "🦊", 
 export function Onboarding() {
   const { completeOnboarding } = useStore();
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [count, setCount] = useState(1);
+  const [, setCount] = useState(1);
   const [children, setChildren] = useState<OnboardingChild[]>([{ name: "", avatar: "🧒" }]);
   const [busy, setBusy] = useState(false);
 
