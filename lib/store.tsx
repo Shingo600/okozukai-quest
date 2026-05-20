@@ -107,6 +107,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // 端末ごとにログイン中のプロフィールを管理（Supabase には保存しない）
   const [localCurrentUserId, setLocalCurrentUserId] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // リモート（他端末からの realtime）由来の setState は再保存しない
+  const isApplyingRemoteRef = useRef(false);
 
   // hydrate + rollover + realtime subscribe
   useEffect(() => {
@@ -123,9 +125,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // 共有 state の currentUserId は無視（端末ローカルで管理）
       setState({ ...rolled, currentUserId: null });
       setHydrated(true);
-      // 他端末からの変更を受信。currentUserId は端末ローカルなので無視
+      // 他端末からの変更を受信。currentUserId は端末ローカルなので無視。
+      // ここから setState すると useEffect が走るが、isApplyingRemoteRef で
+      // 「リモート反映による state 変更」を判別し、再保存ループに入らないようにする。
       unsubChange = api.subscribe((remote) => {
         const merged = mergeWithDefaults(remote);
+        isApplyingRemoteRef.current = true;
         setState({ ...rolloverIfNeeded(merged), currentUserId: null });
       });
       // セッション変化（サインアウト等）
@@ -142,9 +147,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; unsubChange(); unsubAuth(); };
   }, []);
 
-  // 永続化（デバウンス）。currentUserId はサーバに送らない
+  // 永続化（デバウンス）。currentUserId はサーバに送らない。
+  // リモート由来の setState は再保存しない（エコーループ防止）。
   useEffect(() => {
     if (!hydrated) return;
+    if (isApplyingRemoteRef.current) {
+      isApplyingRemoteRef.current = false;
+      return;
+    }
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       void api.saveState({ ...state, currentUserId: null });
