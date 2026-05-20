@@ -4,7 +4,12 @@
  * 画像ファイルを正方リサイズ + JPEG 圧縮した data URL を返す。
  * 失敗時は FileReader で読み込んだ生 data URL（無圧縮）を返す。
  */
+const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
+
 export async function resizeToDataUrl(file: File, size = 128, quality = 0.7): Promise<string> {
+  if (file.size > MAX_FILE_BYTES) {
+    throw new Error("画像は 10MB 以下にしてください");
+  }
   try {
     const bitmap = await createImageBitmap(file);
     const sx = (bitmap.width - Math.min(bitmap.width, bitmap.height)) / 2;

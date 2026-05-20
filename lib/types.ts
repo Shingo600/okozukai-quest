@@ -34,10 +34,11 @@ export interface AllowanceHistory {
   id: string;
   childId: string;
   taskId?: string;
+  redemptionId?: string;
   title: string;
   amount: number;
   type: "earn" | "spend" | "paid";
-  status: "approved" | "pending";
+  status: "approved" | "pending" | "cancelled";
   createdAt: string;
   paidAt?: string;
 }

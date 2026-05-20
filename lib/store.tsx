@@ -107,8 +107,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // 端末ごとにログイン中のプロフィールを管理（Supabase には保存しない）
   const [localCurrentUserId, setLocalCurrentUserId] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // リモート（他端末からの realtime）由来の setState は再保存しない
-  const isApplyingRemoteRef = useRef(false);
+  // 直近のリモート適用時の参照を覚えておき、save 不要かを判定する。
+  // ローカルで setState されると state の参照が変わるので、参照一致なら save スキップ。
+  const remoteSnapshotRef = useRef<AppState | null>(null);
 
   // hydrate + rollover + realtime subscribe
   useEffect(() => {
@@ -126,12 +127,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setState({ ...rolled, currentUserId: null });
       setHydrated(true);
       // 他端末からの変更を受信。currentUserId は端末ローカルなので無視。
-      // ここから setState すると useEffect が走るが、isApplyingRemoteRef で
-      // 「リモート反映による state 変更」を判別し、再保存ループに入らないようにする。
+      // 適用した state の参照を覚えて、useEffect 側で「参照一致なら save 不要」と判定する。
+      // ローカルで setState されると別参照になり、自動的に save が走る。
       unsubChange = api.subscribe((remote) => {
         const merged = mergeWithDefaults(remote);
-        isApplyingRemoteRef.current = true;
-        setState({ ...rolloverIfNeeded(merged), currentUserId: null });
+        const next: AppState = { ...rolloverIfNeeded(merged), currentUserId: null };
+        remoteSnapshotRef.current = next;
+        setState(next);
       });
       // セッション変化（サインアウト等）
       unsubAuth = api.onAuthChange((s) => {
@@ -148,13 +150,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // 永続化（デバウンス）。currentUserId はサーバに送らない。
-  // リモート由来の setState は再保存しない（エコーループ防止）。
+  // 直近のリモート反映と同じ参照なら save しない（エコーループ防止）。
+  // ローカル操作で setState が走ると参照が変わるので、通常通り save される。
   useEffect(() => {
     if (!hydrated) return;
-    if (isApplyingRemoteRef.current) {
-      isApplyingRemoteRef.current = false;
+    if (remoteSnapshotRef.current === state) {
+      remoteSnapshotRef.current = null;
       return;
     }
+    remoteSnapshotRef.current = null;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       void api.saveState({ ...state, currentUserId: null });
@@ -480,12 +484,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       success = true;
       const users = s.users.map((u) => (u.id === childId ? { ...u, allowanceBalance: u.allowanceBalance - reward.cost } : u));
       const rewards = s.rewards.map((r) => (r.id === rewardId && r.stock !== undefined ? { ...r, stock: r.stock - 1 } : r));
+      const redemptionId = `red_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       const req: RedemptionRequest = {
-        id: `red_${Date.now()}`, childId, rewardId, cost: reward.cost, status: "pending",
+        id: redemptionId, childId, rewardId, cost: reward.cost, status: "pending",
         createdAt: todayLocal(),
       };
       const hist: AllowanceHistory = {
-        id: `h_${Date.now()}`, childId, title: `🎁 ${reward.title}`, amount: -reward.cost, type: "spend",
+        id: `h_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, childId,
+        redemptionId,
+        title: `🎁 ${reward.title}`, amount: -reward.cost, type: "spend",
         status: "pending", createdAt: todayLocal(),
       };
       osTitle = "🎁 ごほうび交換の申請";
@@ -515,7 +522,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return {
         ...s,
         redemptions: s.redemptions.map((r) => (r.id === redemptionId ? { ...r, status: "confirmed" } : r)),
-        history: s.history.map((h) => (h.childId === req.childId && h.amount === -req.cost && h.status === "pending" ? { ...h, status: "approved" } : h)),
+        history: s.history.map((h) => (h.redemptionId === redemptionId ? { ...h, status: "approved" } : h)),
       };
     });
   }, []);
@@ -524,13 +531,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setState((s) => {
       const req = s.redemptions.find((r) => r.id === redemptionId);
       if (!req || req.status !== "pending") return s;
-      // 残高を戻し、history を取り消し
+      // 残高を戻し、対応する履歴は削除ではなく cancelled に
       const users = s.users.map((u) => (u.id === req.childId ? { ...u, allowanceBalance: u.allowanceBalance + req.cost } : u));
       const rewards = s.rewards.map((r) => (r.id === req.rewardId && r.stock !== undefined ? { ...r, stock: r.stock + 1 } : r));
       return {
         ...s, users, rewards,
         redemptions: s.redemptions.map((r) => (r.id === redemptionId ? { ...r, status: "cancelled" } : r)),
-        history: s.history.filter((h) => !(h.childId === req.childId && h.amount === -req.cost && h.status === "pending")),
+        history: s.history.map((h) => (h.redemptionId === redemptionId ? { ...h, status: "cancelled" } : h)),
       };
     });
   }, []);

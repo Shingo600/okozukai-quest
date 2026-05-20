@@ -84,8 +84,12 @@ export function Onboarding() {
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
-                      const dataUrl = await resizeToDataUrl(file);
-                      updateChild(i, { avatar: dataUrl });
+                      try {
+                        const dataUrl = await resizeToDataUrl(file);
+                        updateChild(i, { avatar: dataUrl });
+                      } catch (err) {
+                        alert(err instanceof Error ? err.message : "画像の読み込みに失敗しました");
+                      }
                     }}
                   />
                 </label>

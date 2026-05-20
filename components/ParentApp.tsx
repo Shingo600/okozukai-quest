@@ -317,7 +317,7 @@ function ApprovalPage({ onApprove, onReject }: { onApprove: (id: string) => void
 function ParentHistory() {
   const { state } = useStore();
   const approvedTotal = state.history.filter((h) => h.status === "approved" && h.type === "earn").reduce((a, h) => a + h.amount, 0);
-  const pendingTotal = state.history.filter((h) => h.status === "pending").reduce((a, h) => a + Math.abs(h.amount), 0);
+  const pendingTotal = state.history.filter((h) => h.status === "pending" && h.type === "earn").reduce((a, h) => a + h.amount, 0);
   return (
     <div className="px-4 space-y-3">
       <div className="card px-4 py-4 flex items-center justify-between">
@@ -336,18 +336,19 @@ function ParentHistory() {
           const isSpend = h.type === "spend";
           const isEarn = h.type === "earn";
           const paid = !!h.paidAt;
+          const isCancelled = h.status === "cancelled";
           return (
-            <div key={h.id} className="card flex items-center gap-3 px-3 py-3">
+            <div key={h.id} className={`card flex items-center gap-3 px-3 py-3 ${isCancelled ? "opacity-60" : ""}`}>
               <div className="text-xs text-gray-500 w-12">{h.createdAt.slice(5)}</div>
               <Avatar avatar={child?.avatar ?? "🧒"} size={32} />
               <div className="flex-1">
-                <div className="font-bold text-sm">{h.title}</div>
-                <div className={`text-xs ${h.status === "approved" ? "text-green-600" : "text-amber-600"}`}>
-                  {h.status === "approved" ? "承認済み" : "未確定"}
-                  {isEarn && (paid ? <span className="ml-2 text-blue-600">💰 支払い済</span> : <span className="ml-2 text-gray-400">未払い</span>)}
+                <div className={`font-bold text-sm ${isCancelled ? "line-through" : ""}`}>{h.title}</div>
+                <div className={`text-xs ${isCancelled ? "text-gray-400" : h.status === "approved" ? "text-green-600" : "text-amber-600"}`}>
+                  {isCancelled ? "キャンセル済" : h.status === "approved" ? "承認済み" : "未確定"}
+                  {isEarn && !isCancelled && (paid ? <span className="ml-2 text-blue-600">💰 支払い済</span> : <span className="ml-2 text-gray-400">未払い</span>)}
                 </div>
               </div>
-              <div className={`font-bold ${isSpend ? "text-rose-500" : "text-green-600"}`}>{isSpend ? "" : "+"}{h.amount}円</div>
+              <div className={`font-bold ${isCancelled ? "text-gray-400 line-through" : isSpend ? "text-rose-500" : "text-green-600"}`}>{isSpend ? "" : "+"}{h.amount}円</div>
             </div>
           );
         })}
@@ -456,6 +457,8 @@ function ProfileEditModal({ userId, onClose }: { userId: string; onClose: () => 
     try {
       const dataUrl = await resizeToDataUrl(file);
       setAvatar(dataUrl);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "画像の読み込みに失敗しました");
     } finally {
       setBusy(false);
     }
