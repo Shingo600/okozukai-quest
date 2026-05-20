@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Session } from "@/lib/api";
+import { InstallButton } from "./InstallButton";
 
 type Mode = "signin" | "signup";
 
@@ -77,6 +78,7 @@ function AuthScreen({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
         <p className="text-[11px] text-gray-400 text-center">
           {mode === "signin" ? "初回はサインアップしてください。" : "サインアップすると家族用データが作成されます。"}
         </p>
+        <InstallButton />
       </div>
     </div>
   );
