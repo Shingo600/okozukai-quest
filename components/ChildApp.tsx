@@ -22,7 +22,7 @@ export function ChildApp() {
       <Header child={child} unread={unread} onBell={() => { setShowBell(true); markAllRead(child.id); }} onSwitch={() => setCurrentUser(null)} />
       {tab === "home" && <ChildHome child={child} tasks={todaysTasks} />}
       {tab === "quest" && <QuestPage child={child} />}
-      {tab === "reward" && <RewardExchange child={child} />}
+      {tab === "bonus" && <BonusList child={child} />}
       {tab === "history" && <HistoryPage child={child} />}
       {tab === "mypage" && <MyPage child={child} />}
       <ChildNav tab={tab} onChange={setTab} pendingCount={unread} />
@@ -185,62 +185,67 @@ function QuestPage({ child }: { child: User }) {
   );
 }
 
-function RewardExchange({ child }: { child: User }) {
-  const { state, redeemReward, pushToast } = useStore();
-  const [confirmId, setConfirmId] = useState<string | null>(null);
-  const target = state.rewards.find((r) => r.id === confirmId);
-  const handle = () => {
-    if (!target) return;
-    const ok = redeemReward(child.id, target.id);
-    setConfirmId(null);
-    if (ok) pushToast({ title: "こうかん申請！", message: `${target.title} は親が受渡しを確認したらゲットだよ`, icon: "🎁", tone: "success" });
-    else pushToast({ title: "交換できません", message: "残高が足りないか、在庫切れだよ", icon: "⚠️", tone: "warn" });
-  };
+function BonusList({ child }: { child: User }) {
+  const { state } = useStore();
+  // level 昇順
+  const bonuses = useMemo(() => state.levelBonuses.slice().sort((a, b) => a.level - b.level), [state.levelBonuses]);
+  // childId ごとの最新 claim を bonusId → claim でマップ化
+  const myClaims = useMemo(() => state.bonusClaims.filter((c) => c.childId === child.id), [state.bonusClaims, child.id]);
+  const claimByBonusId = useMemo(() => {
+    const m: Record<string, typeof myClaims[number]> = {};
+    for (const c of myClaims) {
+      // cancelled 以外を優先
+      const cur = m[c.bonusId];
+      if (!cur) m[c.bonusId] = c;
+      else if (cur.status === "cancelled" && c.status !== "cancelled") m[c.bonusId] = c;
+    }
+    return m;
+  }, [myClaims]);
+
+  const pct = Math.min(100, Math.round((child.xp / Math.max(1, child.xpToNext)) * 100));
+
   return (
     <div className="px-4 space-y-4">
       <div className="card px-4 py-4 bg-gradient-to-b from-white to-amber-50 text-center">
-        <div className="inline-block bg-kid-green text-white text-xs font-bold rounded-full px-3 py-1">ごほうび交換</div>
+        <div className="inline-block bg-kid-green text-white text-xs font-bold rounded-full px-3 py-1">レベルアップボーナス</div>
         <div className="flex items-center justify-between mt-3">
           <div className="text-left">
-            <div className="text-xs text-gray-500">おこづかい残高</div>
-            <div className="text-2xl font-extrabold text-gray-800">🪙 {child.allowanceBalance.toLocaleString()}円</div>
+            <div className="text-xs text-gray-500">いまのレベル</div>
+            <div className="text-3xl font-extrabold text-gray-800">Lv. {child.level}</div>
           </div>
-          <div className="text-5xl">🐷</div>
+          <div className="text-5xl">🌟</div>
         </div>
+        <div className="mt-3 h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-kid-yellow to-orange-300" style={{ width: `${pct}%` }} />
+        </div>
+        <div className="text-[11px] text-gray-500 mt-1">つぎのレベルまで あと {Math.max(0, child.xpToNext - child.xp)} XP</div>
       </div>
-      <div className="font-bold text-gray-700 text-sm">交換できるごほうび</div>
+
+      <div className="font-bold text-gray-700 text-sm">達成でもらえるボーナス</div>
       <div className="space-y-2">
-        {state.rewards.map((r) => {
-          const stockOk = r.stock === undefined || r.stock > 0;
-          const ok = child.allowanceBalance >= r.cost && stockOk;
+        {bonuses.length === 0 && <div className="card px-4 py-6 text-center text-sm text-gray-400">親がまだボーナスを設定していません</div>}
+        {bonuses.map((b) => {
+          const claim = claimByBonusId[b.id];
+          const reached = child.level >= b.level;
+          const pending = reached && claim && claim.status === "pending";
+          const confirmed = claim && claim.status === "confirmed";
+          let badge: { text: string; className: string };
+          if (confirmed) badge = { text: "✓ 受け取り済", className: "bg-emerald-100 text-emerald-700" };
+          else if (pending) badge = { text: "🎁 親が確認中", className: "bg-amber-100 text-amber-700" };
+          else if (reached) badge = { text: "達成済", className: "bg-emerald-50 text-emerald-600" };
+          else badge = { text: `🔒 Lv.${b.level} で解放`, className: "bg-gray-100 text-gray-400" };
           return (
-            <div key={r.id} className="card flex items-center gap-3 px-3 py-3">
-              <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center text-2xl">{r.icon}</div>
+            <div key={b.id} className={`card flex items-center gap-3 px-3 py-3 ${!reached ? "opacity-70" : ""}`}>
+              <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center text-2xl">{b.icon ?? "🌟"}</div>
               <div className="flex-1">
-                <div className="font-bold text-sm">{r.title}</div>
-                <div className="text-xs text-amber-600 font-bold">🪙 {r.cost.toLocaleString()}円 {r.stock !== undefined && <span className="text-gray-400">・ 残り{r.stock}</span>}</div>
+                <div className="font-bold text-sm">Lv.{b.level} {b.title ? <span className="text-gray-600">・ {b.title}</span> : null}</div>
+                <div className="text-xs text-amber-600 font-bold">🪙 {b.reward.toLocaleString()}円</div>
               </div>
-              <button onClick={() => setConfirmId(r.id)} disabled={!ok} className={`pill ${ok ? "bg-kid-green text-white" : "bg-gray-100 text-gray-400"}`}>こうかん</button>
+              <span className={`pill ${badge.className}`}>{badge.text}</span>
             </div>
           );
         })}
       </div>
-      {confirmId && target && (
-        <div className="fixed inset-0 bg-black/30 z-40 flex items-end" onClick={() => setConfirmId(null)}>
-          <div className="w-full max-w-[430px] mx-auto bg-white rounded-t-3xl p-5" onClick={(e) => e.stopPropagation()}>
-            <div className="text-center">
-              <div className="text-5xl">{target.icon}</div>
-              <div className="font-bold mt-2">{target.title}</div>
-              <div className="text-sm text-amber-600 font-bold mt-1">🪙 {target.cost.toLocaleString()}円</div>
-              <div className="text-xs text-gray-500 mt-3">残高から引いて、親に受渡しをお願いします。</div>
-            </div>
-            <div className="grid grid-cols-2 gap-2 mt-4">
-              <button onClick={() => setConfirmId(null)} className="rounded-full bg-gray-100 text-gray-600 font-bold py-2">やめる</button>
-              <button onClick={handle} className="btn-primary-kid py-2">こうかんする</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

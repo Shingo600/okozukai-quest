@@ -1,7 +1,7 @@
 "use client";
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import type {
-  AppState, Task, User, Notification, AllowanceHistory, NotificationSettings, RepeatType, TaskTemplate, RedemptionRequest,
+  AppState, Task, User, Notification, AllowanceHistory, NotificationSettings, RepeatType, TaskTemplate, LevelBonus, BonusClaim,
 } from "./types";
 import { createDemoState, createEmptyState } from "./demoData";
 import { hashPin, verifyPin } from "./pin";
@@ -30,7 +30,8 @@ function mergeWithDefaults(parsed: Partial<AppState>): AppState {
     ...defaults,
     ...parsed,
     taskTemplates: parsed.taskTemplates ?? defaults.taskTemplates,
-    redemptions: parsed.redemptions ?? [],
+    levelBonuses: parsed.levelBonuses ?? defaults.levelBonuses,
+    bonusClaims: parsed.bonusClaims ?? [],
   };
 }
 
@@ -73,10 +74,12 @@ interface Ctx {
   // task templates
   addTemplate: (t: Omit<TaskTemplate, "id">) => void;
   removeTemplate: (id: string) => void;
-  // rewards
-  redeemReward: (childId: string, rewardId: string) => boolean;
-  confirmRedeem: (redemptionId: string) => void;
-  cancelRedeem: (redemptionId: string) => void;
+  // level bonuses
+  addLevelBonus: (input: Omit<LevelBonus, "id">) => void;
+  updateLevelBonus: (id: string, patch: Partial<Omit<LevelBonus, "id">>) => void;
+  deleteLevelBonus: (id: string) => void;
+  confirmBonusClaim: (claimId: string) => void;
+  cancelBonusClaim: (claimId: string) => void;
   // toasts (UI演出)
   toasts: ToastItem[];
   pushToast: (t: Omit<ToastItem, "id">) => void;
@@ -372,16 +375,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     let earned = 0;
     let childName = "";
     let osTitle = "", osBody = "", settings: NotificationSettings | null = null;
+    let triggeredBonuses: BonusClaim[] = [];
     setState((s) => {
       const task = s.tasks.find((t) => t.id === taskId);
       if (!task) return s;
       const requester = s.users.find((u) => u.id === task.requesterId);
+      let oldLevel = 0;
+      let newLevel = 0;
       const users = s.users.map((u) => {
         if (u.id !== task.assignedChildId) return u;
+        oldLevel = u.level;
         let xp = u.xp + Math.max(20, Math.floor(task.reward / 2));
         let level = u.level;
         let xpToNext = u.xpToNext || 500;
         while (xp >= xpToNext) { xp -= xpToNext; level += 1; xpToNext = xpToNext + 100; levelUp = true; }
+        newLevel = level;
         childName = u.name;
         return { ...u, allowanceBalance: u.allowanceBalance + task.reward, xp, level, xpToNext };
       });
@@ -399,12 +407,55 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         type: "approval", isRead: false, createdAt: new Date().toISOString(),
       };
       earned = task.reward;
+
+      // レベルアップボーナスの判定
+      const newClaims: BonusClaim[] = [];
+      const bonusNotifs: Notification[] = [];
+      if (levelUp) {
+        const triggered = s.levelBonuses.filter(
+          (b) => oldLevel < b.level && b.level <= newLevel
+            && !s.bonusClaims.some((c) => c.childId === task.assignedChildId && c.bonusId === b.id && c.status !== "cancelled"),
+        );
+        for (const b of triggered) {
+          const claim: BonusClaim = {
+            id: `bc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            childId: task.assignedChildId,
+            bonusId: b.id,
+            level: b.level,
+            reward: b.reward,
+            title: b.title,
+            icon: b.icon,
+            status: "pending",
+            achievedAt: todayLocal(),
+          };
+          newClaims.push(claim);
+          // 子供への通知
+          bonusNotifs.push({
+            id: `n_${Date.now()}_bc_${b.id}`, userId: task.assignedChildId,
+            title: `🌟 Lv.${b.level} 達成！`,
+            message: `ボーナス ${b.reward}円 が親の受け渡し待ちだよ`,
+            type: "system", isRead: false, createdAt: new Date().toISOString(),
+          });
+          // 親への通知（全員）
+          for (const p of s.users.filter((u) => u.role !== "child")) {
+            bonusNotifs.push({
+              id: `n_${Date.now()}_${p.id}_${b.id}`, userId: p.id,
+              title: `🌟 ${childName}が Lv.${b.level} 達成！`,
+              message: `ボーナス ${b.reward}円 の受け渡しをお願いします`,
+              type: "approval", isRead: false, createdAt: new Date().toISOString(),
+            });
+          }
+        }
+        triggeredBonuses = newClaims;
+      }
+
       const next: AppState = {
         ...s,
         tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, status: "approved" } : t)),
         users,
         history: [hist, ...s.history],
-        notifications: [notif, ...s.notifications],
+        notifications: [...bonusNotifs, notif, ...s.notifications],
+        bonusClaims: [...newClaims, ...s.bonusClaims],
       };
       // バッジ評価
       const evald = evaluateBadges(next, task.assignedChildId);
@@ -414,7 +465,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           title: "🏅 バッジを獲得！", message: `「${b.title}」をゲット！`,
           type: "system" as const, isRead: false, createdAt: new Date().toISOString(),
         }));
-        // toasts は副作用として後でディスパッチ
         queueMicrotask(() => {
           for (const b of evald.newlyAcquired) pushToast({ title: "バッジ獲得！", message: b.title, icon: b.icon, tone: "success" });
           try { playSound("badge"); } catch {}
@@ -434,6 +484,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           try { playSound("levelup"); } catch {}
           pushToast({ title: "レベルアップ！", message: "Lv. UP 🎉", icon: "⭐", tone: "success" });
         }, 250);
+      }
+      // ボーナス達成時の追加演出
+      for (const c of triggeredBonuses) {
+        setTimeout(() => {
+          try { playSound("levelup"); } catch {}
+          confettiBurst({ count: 80, colors: ["#FFE38A", "#FFB99A", "#FFD9E0", "#A8E6CF"] });
+          pushToast({
+            title: `🌟 Lv.${c.level} 達成ボーナス！`,
+            message: `${c.reward}円 が親の受け渡し待ち`,
+            icon: c.icon ?? "🌟",
+            tone: "success",
+          });
+        }, 500);
       }
     });
   }, [pushToast]);
@@ -472,74 +535,50 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const removeTemplate = useCallback((id: string) =>
     setState((s) => ({ ...s, taskTemplates: s.taskTemplates.filter((t) => t.id !== id) })), []);
 
-  const redeemReward = useCallback((childId: string, rewardId: string): boolean => {
-    let success = false;
-    let osTitle = "", osBody = "", settings: NotificationSettings | null = null;
+  // レベルアップボーナス設定の CRUD
+  const addLevelBonus = useCallback((input: Omit<LevelBonus, "id">) =>
+    setState((s) => ({ ...s, levelBonuses: [...s.levelBonuses, { ...input, id: `lb_${Date.now()}_${Math.random().toString(36).slice(2, 6)}` }] })), []);
+  const updateLevelBonus = useCallback((id: string, patch: Partial<Omit<LevelBonus, "id">>) =>
+    setState((s) => ({ ...s, levelBonuses: s.levelBonuses.map((b) => (b.id === id ? { ...b, ...patch } : b)) })), []);
+  const deleteLevelBonus = useCallback((id: string) =>
+    setState((s) => ({ ...s, levelBonuses: s.levelBonuses.filter((b) => b.id !== id) })), []);
+
+  // 親がボーナスを受け渡し → 残高に加算
+  const confirmBonusClaim = useCallback((claimId: string) => {
     setState((s) => {
-      const child = s.users.find((u) => u.id === childId);
-      const reward = s.rewards.find((r) => r.id === rewardId);
-      if (!child || !reward) return s;
-      if (child.allowanceBalance < reward.cost) return s;
-      if (reward.stock !== undefined && reward.stock <= 0) return s;
-      success = true;
-      const users = s.users.map((u) => (u.id === childId ? { ...u, allowanceBalance: u.allowanceBalance - reward.cost } : u));
-      const rewards = s.rewards.map((r) => (r.id === rewardId && r.stock !== undefined ? { ...r, stock: r.stock - 1 } : r));
-      const redemptionId = `red_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-      const req: RedemptionRequest = {
-        id: redemptionId, childId, rewardId, cost: reward.cost, status: "pending",
+      const claim = s.bonusClaims.find((c) => c.id === claimId);
+      if (!claim || claim.status !== "pending") return s;
+      const users = s.users.map((u) => (u.id === claim.childId ? { ...u, allowanceBalance: u.allowanceBalance + claim.reward } : u));
+      const hist: AllowanceHistory = {
+        id: `h_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        childId: claim.childId,
+        bonusClaimId: claim.id,
+        title: `${claim.icon ?? "🌟"} Lv.${claim.level} 達成ボーナス${claim.title ? ` (${claim.title})` : ""}`,
+        amount: claim.reward,
+        type: "earn",
+        status: "approved",
         createdAt: todayLocal(),
       };
-      const hist: AllowanceHistory = {
-        id: `h_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, childId,
-        redemptionId,
-        title: `🎁 ${reward.title}`, amount: -reward.cost, type: "spend",
-        status: "pending", createdAt: todayLocal(),
-      };
-      osTitle = "🎁 ごほうび交換の申請";
-      osBody = `${child.name}が「${reward.title}」を交換したよ`;
-      settings = s.settings;
-      const parentNotifs: Notification[] = s.users.filter((u) => u.role !== "child").map((p) => ({
-        id: `n_${Date.now()}_${p.id}`, userId: p.id,
-        title: osTitle, message: osBody,
+      const notif: Notification = {
+        id: `n_${Date.now()}_bc_conf`, userId: claim.childId,
+        title: `${claim.icon ?? "🌟"} ボーナスゲット！`,
+        message: `Lv.${claim.level} 達成ボーナス ${claim.reward}円`,
         type: "approval", isRead: false, createdAt: new Date().toISOString(),
-      }));
-      return { ...s, users, rewards, redemptions: [req, ...s.redemptions], history: [hist, ...s.history], notifications: [...parentNotifs, ...s.notifications] };
-    });
-    if (success) {
-      if (settings) maybeFireOS(settings, "approval", osTitle, osBody);
-      queueMicrotask(() => {
-        try { playSound("spend"); } catch {}
-        confettiBurst({ count: 50, colors: ["#FFE38A", "#FFB99A", "#FFD9E0"] });
-      });
-    }
-    return success;
-  }, []);
-
-  const confirmRedeem = useCallback((redemptionId: string) => {
-    setState((s) => {
-      const req = s.redemptions.find((r) => r.id === redemptionId);
-      if (!req) return s;
+      };
       return {
-        ...s,
-        redemptions: s.redemptions.map((r) => (r.id === redemptionId ? { ...r, status: "confirmed" } : r)),
-        history: s.history.map((h) => (h.redemptionId === redemptionId ? { ...h, status: "approved" } : h)),
+        ...s, users,
+        bonusClaims: s.bonusClaims.map((c) => (c.id === claimId ? { ...c, status: "confirmed", confirmedAt: todayLocal() } : c)),
+        history: [hist, ...s.history],
+        notifications: [notif, ...s.notifications],
       };
     });
   }, []);
 
-  const cancelRedeem = useCallback((redemptionId: string) => {
-    setState((s) => {
-      const req = s.redemptions.find((r) => r.id === redemptionId);
-      if (!req || req.status !== "pending") return s;
-      // 残高を戻し、対応する履歴は削除ではなく cancelled に
-      const users = s.users.map((u) => (u.id === req.childId ? { ...u, allowanceBalance: u.allowanceBalance + req.cost } : u));
-      const rewards = s.rewards.map((r) => (r.id === req.rewardId && r.stock !== undefined ? { ...r, stock: r.stock + 1 } : r));
-      return {
-        ...s, users, rewards,
-        redemptions: s.redemptions.map((r) => (r.id === redemptionId ? { ...r, status: "cancelled" } : r)),
-        history: s.history.map((h) => (h.redemptionId === redemptionId ? { ...h, status: "cancelled" } : h)),
-      };
-    });
+  const cancelBonusClaim = useCallback((claimId: string) => {
+    setState((s) => ({
+      ...s,
+      bonusClaims: s.bonusClaims.map((c) => (c.id === claimId ? { ...c, status: "cancelled" } : c)),
+    }));
   }, []);
 
   const currentUser = useMemo(() => state.users.find((u) => u.id === localCurrentUserId) ?? null, [state, localCurrentUserId]);
@@ -554,7 +593,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     addTask, updateTask, deleteTask, moveTask, submitTask, approveTask, rejectTask,
     markNotificationRead, markAllRead, pushNotification, updateSettings,
     addTemplate, removeTemplate,
-    redeemReward, confirmRedeem, cancelRedeem,
+    addLevelBonus, updateLevelBonus, deleteLevelBonus, confirmBonusClaim, cancelBonusClaim,
     toasts, pushToast, dismissToast,
   };
 

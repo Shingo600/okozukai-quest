@@ -1,14 +1,14 @@
 "use client";
 import React from "react";
 
-export type ChildTab = "home" | "quest" | "reward" | "history" | "mypage";
+export type ChildTab = "home" | "quest" | "bonus" | "history" | "mypage";
 export type ParentTab = "home" | "task" | "approval" | "history" | "settings";
 
 export function ChildNav({ tab, onChange, pendingCount = 0 }: { tab: ChildTab; onChange: (t: ChildTab) => void; pendingCount?: number }) {
   const items: { key: ChildTab; label: string; icon: string }[] = [
     { key: "home", label: "ホーム", icon: "🏠" },
     { key: "quest", label: "クエスト", icon: "⚔️" },
-    { key: "reward", label: "ごほうび", icon: "🎁" },
+    { key: "bonus", label: "ボーナス", icon: "🌟" },
     { key: "history", label: "履歴", icon: "📜" },
     { key: "mypage", label: "マイページ", icon: "👤" },
   ];

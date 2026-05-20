@@ -10,7 +10,7 @@
 ### 何をするアプリか
 
 - **親**が子供のお手伝いタスクを登録 → **子供**が完了申請 → 親が承認 → **おこづかいに反映**
-- 子供は溜まったおこづかいで「ごほうび」と交換できる
+- レベルアップ達成で**ボーナス**が発生し、親が「受け渡し」を確認すると残高に加算
 - 親は「未払い額」を見ながら、実際に現金を渡したらタスクを「支払い済み」にチェック
 - バッジ・レベル・連続達成日数（streak）でゲーミフィケーション
 
@@ -54,7 +54,7 @@
 │  ├─ AuthGate.tsx               # サインイン/サインアップ画面（backend=supabase のみ）
 │  ├─ Onboarding.tsx             # 初回セットアップ（子供登録 + PIN）
 │  ├─ UserSwitch.tsx             # プロフィール選択画面（親は PIN ロック）
-│  ├─ ChildApp.tsx               # 子供向け全画面（ホーム/クエスト/ごほうび/履歴/マイページ）
+│  ├─ ChildApp.tsx               # 子供向け全画面（ホーム/クエスト/ボーナス/履歴/マイページ）
 │  ├─ ParentApp.tsx              # 親向け全画面（ダッシュボード/タスク/承認/履歴/設定）
 │  ├─ Avatar.tsx                 # 絵文字 or data URL を表示する共通アバター
 │  ├─ PinPad.tsx                 # 4桁 PIN 入力 UI（入力/設定モード兼用）
@@ -132,10 +132,10 @@ interface AppState {
   tasks: Task[];
   history: AllowanceHistory[];
   notifications: Notification[];
-  rewards: RewardItem[];
   badges: Badge[];
   taskTemplates: TaskTemplate[];
-  redemptions: RedemptionRequest[];
+  levelBonuses: LevelBonus[];
+  bonusClaims: BonusClaim[];
   settings: NotificationSettings;
 }
 ```
@@ -146,10 +146,10 @@ interface AppState {
 |---|---|---|
 | `User` | id, name, role: "child" \| "father" \| "mother", avatar(string), level, xp, xpToNext, streakDays, allowanceBalance | avatar は絵文字 or `data:image/jpeg;...` |
 | `Task` | id, title, icon, reward, requesterId, assignedChildId, status: "active"\|"submitted"\|"approved"\|"rejected", dueDate, repeatType: "today"\|"daily"\|"weekly"\|"none", weekdays:number[], memo, createdAt | weekdays は 0=日 .. 6=土 |
-| `AllowanceHistory` | id, childId, taskId?, **redemptionId?**, title, amount(±), type: "earn"\|"spend"\|"paid", status: "approved"\|"pending"\|"cancelled", createdAt, paidAt? | paidAt は親が現金で渡した日 |
+| `AllowanceHistory` | id, childId, taskId?, **bonusClaimId?**, title, amount(±), type: "earn"\|"spend"\|"paid", status: "approved"\|"pending"\|"cancelled", createdAt, paidAt? | paidAt は親が現金で渡した日 |
 | `Notification` | id, userId (\| "all"), title, message, type: "task"\|"approval"\|"reminder"\|"system", isRead, createdAt | |
-| `RewardItem` | id, title, icon, cost, stock? | |
-| `RedemptionRequest` | id, childId, rewardId, cost, status: "pending"\|"confirmed"\|"cancelled", createdAt | 履歴とは redemptionId で 1:1 |
+| `LevelBonus` | id, level, reward, title?, icon? | 親が設定するレベル達成ボーナス |
+| `BonusClaim` | id, childId, bonusId, level, reward, title?, icon?, status: "pending"\|"confirmed"\|"cancelled", achievedAt, confirmedAt? | レベル達成時に自動生成。pending → 親が confirm |
 | `Badge` | id, title, icon, description, acquired | 4種固定 |
 | `TaskTemplate` | id, title, icon, reward, usedCount? | usedCount 降順で表示 |
 | `ParentPin` | hash, salt | SHA-256(salt+pin) の hex |
@@ -267,15 +267,17 @@ UserSwitch::choose(userId, role)
    - 子供への通知 + バッジ判定 (`evaluateBadges`)
    - 紙吹雪 + 効果音
 
-### 6.5 ごほうび交換フロー
+### 6.5 レベルアップボーナスフロー
 
-1. 子供: ごほうび一覧で「こうかん」 → 確認シート → `redeemReward(childId, rewardId)`
-   - 残高チェック → 残高減算
-   - `RedemptionRequest` (pending) と spend `AllowanceHistory` (pending) を作成。**redemptionId で紐付け**
-   - 親に通知
-2. 親: 承認待ちの「ごほうび交換申請」セクション
-   - 「受渡し完了」 → `confirmRedeem(rid)` → 該当 history を `status: approved` に
-   - 「取消（返金）」 → `cancelRedeem(rid)` → 残高戻し + 該当 history を `status: "cancelled"` に（削除はしない）
+1. 親: 設定→「レベルアップボーナス設定」で `{ level, reward, title?, icon? }` を追加
+2. 子供: タスク承認で XP 加算 → レベルアップ
+   - `approveTask` 内で `oldLevel < bonus.level <= newLevel` を満たす `LevelBonus` を抽出
+   - 既に同 bonusId の `BonusClaim` (cancelled 以外) があれば再発しない
+   - 該当ボーナスごとに `BonusClaim {status: "pending"}` を生成し、子供と親に通知 + 紙吹雪
+3. 親: 承認待ちタブの「ボーナス受け渡し」セクション
+   - 「渡しました」 → `confirmBonusClaim(id)` → claim を confirmed に、子供の `allowanceBalance += reward`、history に earn を追加（後で未払いセクションで「支払い済」管理可）
+   - 「取消」 → `cancelBonusClaim(id)` → claim を cancelled に（残高は元々増えてないので何もしない）
+4. 子供: 「ボーナス」タブで全 LevelBonus を一覧。未達成は 🔒、達成済みは状態ごとにバッジ表示（受け取り済 / 確認中）
 
 ### 6.6 支払い管理
 
@@ -438,7 +440,7 @@ npm run dev
 1. **オンボーディング**: 子供1人 + PIN「1234」設定 → UserSwitch 表示
 2. **タスク追加**: 親モードに PIN 入って → 設定済みテンプレから「リビング掃除機」→ 担当の子供を選択 → 保存
 3. **完了申請 → 承認**: 子供で「できた！」→ 親で承認 → 残高が増える
-4. **ごほうび交換**: 子供で「おかしパーティー (500円)」を交換 → 親側「承認待ち」に交換申請が現れる → 受渡し完了
+4. **レベルアップボーナス**: 親設定で「Lv.3 達成で 100円」を登録 → 子供のタスクを承認しまくって Lv.3 到達 → 親「承認待ち」に「Lv.3 達成ボーナス 100円」 → 「渡しました」で残高 +100円
 5. **未払い管理**: 親ダッシュボード「💰 未払い」 → タップ → 未払いタスクを選んで「支払い済みに」
 6. **PIN ロック**: 親モード設定で「親モードを終了」 → UserSwitch → 親アバターが 🔒 → 再度 PIN 要求
 7. **リセット**: 設定 →「全データを初期化」→ 二重 confirm → オンボーディングへ

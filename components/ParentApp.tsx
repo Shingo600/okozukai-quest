@@ -22,7 +22,7 @@ export function ParentApp() {
   const planned = state.tasks.reduce((a, t) => a + t.reward, 0);
   const paid = approved.reduce((a, t) => a + t.reward, 0);
   const ratio = planned > 0 ? Math.round((paid / planned) * 100) : 0;
-  const pendingRedemptions = state.redemptions.filter((r) => r.status === "pending");
+  const pendingBonusClaims = state.bonusClaims.filter((c) => c.status === "pending");
 
   return (
     <div className="min-h-screen bg-parent-bg pb-24">
@@ -48,7 +48,7 @@ export function ParentApp() {
       {tab === "history" && <ParentHistory />}
       {tab === "settings" && <SettingsPage user={currentUser} />}
 
-      <ParentNav tab={tab} onChange={setTab} pendingCount={pending.length + pendingRedemptions.length} />
+      <ParentNav tab={tab} onChange={setTab} pendingCount={pending.length + pendingBonusClaims.length} />
       {showAdd && <TaskFormModal mode="create" requesterId={currentUser.id} onClose={() => setShowAdd(false)} />}
       {editing && <TaskFormModal mode="edit" task={editing} requesterId={editing.requesterId} onClose={() => setEditing(null)} />}
     </div>
@@ -263,14 +263,14 @@ function TaskListPage({ onAdd, onEdit }: { onAdd: () => void; onEdit: (t: Task) 
 }
 
 function ApprovalPage({ onApprove, onReject }: { onApprove: (id: string) => void; onReject: (id: string) => void }) {
-  const { state, confirmRedeem, cancelRedeem } = useStore();
+  const { state, confirmBonusClaim, cancelBonusClaim } = useStore();
   const pending = state.tasks.filter((t) => t.status === "submitted");
-  const reds = state.redemptions.filter((r) => r.status === "pending");
+  const bonuses = state.bonusClaims.filter((c) => c.status === "pending");
   return (
     <div className="px-4 space-y-3">
-      <div className="font-bold">承認待ち（タスク {pending.length} / 交換 {reds.length}）</div>
+      <div className="font-bold">承認待ち（タスク {pending.length} / ボーナス {bonuses.length}）</div>
 
-      {pending.length === 0 && reds.length === 0 && <div className="card px-4 py-6 text-center text-sm text-gray-400">承認待ちはありません</div>}
+      {pending.length === 0 && bonuses.length === 0 && <div className="card px-4 py-6 text-center text-sm text-gray-400">承認待ちはありません</div>}
 
       {pending.map((t) => {
         const child = state.users.find((u) => u.id === t.assignedChildId);
@@ -291,21 +291,21 @@ function ApprovalPage({ onApprove, onReject }: { onApprove: (id: string) => void
         );
       })}
 
-      {reds.map((r) => {
-        const child = state.users.find((u) => u.id === r.childId);
-        const reward = state.rewards.find((rw) => rw.id === r.rewardId);
+      {bonuses.map((c) => {
+        const child = state.users.find((u) => u.id === c.childId);
         return (
-          <div key={r.id} className="card px-3 py-3 bg-amber-50">
+          <div key={c.id} className="card px-3 py-3 bg-amber-50">
             <div className="flex items-center gap-3">
-              <div className="text-3xl">🎁</div>
+              <div className="text-3xl">{c.icon ?? "🌟"}</div>
+              <Avatar avatar={child?.avatar ?? "🧒"} size={36} />
               <div className="flex-1">
-                <div className="font-bold text-sm">{reward?.icon} {reward?.title}</div>
-                <div className="text-xs text-gray-500">{child?.name} ・ {r.cost.toLocaleString()}円</div>
+                <div className="font-bold text-sm">Lv.{c.level} 達成ボーナス {c.title ? <span className="text-gray-600">・ {c.title}</span> : null}</div>
+                <div className="text-xs text-gray-500">{child?.name} ・ {c.reward.toLocaleString()}円</div>
               </div>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2">
-              <button onClick={() => confirmRedeem(r.id)} className="btn-primary-parent text-xs py-2">受渡し完了</button>
-              <button onClick={() => cancelRedeem(r.id)} className="rounded-full bg-rose-100 text-rose-600 font-bold text-xs py-2">取消（返金）</button>
+              <button onClick={() => confirmBonusClaim(c.id)} className="btn-primary-parent text-xs py-2">渡しました</button>
+              <button onClick={() => cancelBonusClaim(c.id)} className="rounded-full bg-rose-100 text-rose-600 font-bold text-xs py-2">取消</button>
             </div>
           </div>
         );
@@ -393,6 +393,8 @@ function SettingsPage({ user }: { user: User }) {
           className="text-sm font-bold bg-transparent text-parent-purpleDeep"
         />
       </div>
+      <LevelBonusSection />
+
       <div className="text-xs text-gray-400 px-2 mt-4">家族のプロフィール</div>
       <div className="space-y-2">
         {state.users.map((u) => (
@@ -678,6 +680,92 @@ function Field({ label, children }: { label: React.ReactNode; children: React.Re
     <div>
       <div className="text-xs text-gray-500 mb-1">{label}</div>
       {children}
+    </div>
+  );
+}
+
+function LevelBonusSection() {
+  const { state, deleteLevelBonus } = useStore();
+  const [editing, setEditing] = useState<import("@/lib/types").LevelBonus | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const sorted = state.levelBonuses.slice().sort((a, b) => a.level - b.level);
+  return (
+    <>
+      <div className="text-xs text-gray-400 px-2 mt-4 flex items-center justify-between">
+        <span>レベルアップボーナス設定</span>
+        <button onClick={() => setShowAdd(true)} className="text-parent-purpleDeep underline">＋ 追加</button>
+      </div>
+      <div className="space-y-2">
+        {sorted.length === 0 && <div className="card px-4 py-4 text-center text-xs text-gray-400">ボーナスはまだありません</div>}
+        {sorted.map((b) => (
+          <div key={b.id} className="card flex items-center gap-3 px-3 py-3">
+            <div className="text-2xl">{b.icon ?? "🌟"}</div>
+            <div className="flex-1">
+              <div className="font-bold text-sm">Lv.{b.level} {b.title ? <span className="text-gray-600">・ {b.title}</span> : null}</div>
+              <div className="text-xs text-amber-600 font-bold">🪙 {b.reward.toLocaleString()}円</div>
+            </div>
+            <button onClick={() => setEditing(b)} className="pill bg-parent-purple/20 text-parent-purpleDeep">編集</button>
+            <button onClick={() => { if (confirm("このボーナスを削除しますか？")) deleteLevelBonus(b.id); }} className="pill bg-rose-100 text-rose-600">削除</button>
+          </div>
+        ))}
+      </div>
+      {showAdd && <LevelBonusFormModal onClose={() => setShowAdd(false)} />}
+      {editing && <LevelBonusFormModal bonus={editing} onClose={() => setEditing(null)} />}
+    </>
+  );
+}
+
+const BONUS_ICON_PRESETS = ["🌟", "🌱", "🔥", "🏆", "💎", "🎉", "👑", "🚀"];
+
+function LevelBonusFormModal({ bonus, onClose }: { bonus?: import("@/lib/types").LevelBonus; onClose: () => void }) {
+  const { addLevelBonus, updateLevelBonus } = useStore();
+  const [level, setLevel] = useState(bonus?.level ?? 3);
+  const [reward, setReward] = useState(bonus?.reward ?? 100);
+  const [title, setTitle] = useState(bonus?.title ?? "");
+  const [icon, setIcon] = useState(bonus?.icon ?? "🌟");
+
+  const save = () => {
+    if (!Number.isFinite(level) || level < 1) { alert("レベルは1以上にしてください"); return; }
+    if (!Number.isFinite(reward) || reward < 0) { alert("金額は0以上にしてください"); return; }
+    const payload = { level: Math.floor(level), reward: Math.floor(reward), title: title.trim() || undefined, icon: icon || undefined };
+    if (bonus) updateLevelBonus(bonus.id, payload);
+    else addLevelBonus(payload);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-40 flex items-end" onClick={onClose}>
+      <div className="w-full max-w-[430px] mx-auto bg-white rounded-t-3xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <button onClick={onClose} className="text-parent-purpleDeep text-sm">キャンセル</button>
+          <div className="font-bold">{bonus ? "ボーナスを編集" : "ボーナスを追加"}</div>
+          <button onClick={save} className="text-parent-purpleDeep text-sm font-bold">保存</button>
+        </div>
+        <div className="px-4 py-4 space-y-4 text-sm">
+          <Field label="達成レベル">
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-gray-500">Lv.</span>
+              <input type="number" min={1} value={level} onChange={(e) => setLevel(Number(e.target.value))} className="w-full border rounded-xl px-3 py-2" />
+            </div>
+          </Field>
+          <Field label="ボーナス額">
+            <div className="flex items-center gap-1">
+              <input type="number" min={0} value={reward} onChange={(e) => setReward(Number(e.target.value))} className="w-full border rounded-xl px-3 py-2" />
+              <span>円</span>
+            </div>
+          </Field>
+          <Field label="タイトル（任意）">
+            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例）はじめの一歩" className="w-full border rounded-xl px-3 py-2" />
+          </Field>
+          <Field label="アイコン">
+            <div className="flex flex-wrap gap-2">
+              {BONUS_ICON_PRESETS.map((a) => (
+                <button key={a} onClick={() => setIcon(a)} className={`w-10 h-10 rounded-xl text-2xl flex items-center justify-center ${icon === a ? "bg-emerald-100 ring-2 ring-emerald-300" : "bg-gray-100"}`}>{a}</button>
+              ))}
+            </div>
+          </Field>
+        </div>
+      </div>
     </div>
   );
 }

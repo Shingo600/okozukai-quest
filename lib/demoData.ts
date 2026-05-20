@@ -3,7 +3,7 @@ import { todayLocal } from "./date";
 
 const today = () => todayLocal();
 
-// 本番運用用の「空」状態。親プリセット + テンプレ + ごほうび + バッジ枠だけ用意し、
+// 本番運用用の「空」状態。親プリセット + テンプレ + バッジ枠 + 初期ボーナスだけ用意。
 // 子供・タスク・履歴・通知は空。parentPin も未設定なのでオンボーディングが起動する。
 export const createEmptyState = (): AppState => ({
   currentUserId: null,
@@ -14,12 +14,6 @@ export const createEmptyState = (): AppState => ({
   tasks: [],
   history: [],
   notifications: [],
-  rewards: [
-    { id: "r1", title: "ゲームソフト", icon: "🎮", cost: 2000 },
-    { id: "r2", title: "マンガセット", icon: "📚", cost: 1500 },
-    { id: "r3", title: "文房具セット", icon: "✏️", cost: 800 },
-    { id: "r4", title: "おかしパーティー", icon: "🍭", cost: 500 },
-  ],
   badges: [
     { id: "b1", title: "はじめてのお手伝い", icon: "⭐", description: "初めてのお手伝い達成", acquired: false },
     { id: "b2", title: "3日連続達成", icon: "🔥", description: "3日連続でクエスト達成", acquired: false },
@@ -36,7 +30,12 @@ export const createEmptyState = (): AppState => ({
     { id: "tpl7", title: "玄関の靴をそろえる", icon: "👟", reward: 20 },
     { id: "tpl8", title: "おつかい", icon: "🛍️", reward: 100 },
   ],
-  redemptions: [],
+  levelBonuses: [
+    { id: "lb1", level: 3, reward: 100, title: "はじめの一歩", icon: "🌱" },
+    { id: "lb2", level: 5, reward: 300, title: "がんばり屋さん", icon: "🌟" },
+    { id: "lb3", level: 10, reward: 1000, title: "ハーフ達成", icon: "🏆" },
+  ],
+  bonusClaims: [],
   lastRolloverDate: today(),
   settings: {
     push: false,
@@ -88,19 +87,18 @@ export const createDemoState = (): AppState => ({
     { id: "tpl7", title: "玄関の靴をそろえる", icon: "👟", reward: 20 },
     { id: "tpl8", title: "おつかい", icon: "🛍️", reward: 100 },
   ],
-  rewards: [
-    { id: "r1", title: "ゲームソフト", icon: "🎮", cost: 2000 },
-    { id: "r2", title: "マンガセット", icon: "📚", cost: 1500 },
-    { id: "r3", title: "文房具セット", icon: "✏️", cost: 800 },
-    { id: "r4", title: "おかしパーティー", icon: "🍭", cost: 500 },
+  levelBonuses: [
+    { id: "lb1", level: 3, reward: 100, title: "はじめの一歩", icon: "🌱" },
+    { id: "lb2", level: 5, reward: 300, title: "がんばり屋さん", icon: "🌟" },
+    { id: "lb3", level: 10, reward: 1000, title: "ハーフ達成", icon: "🏆" },
   ],
+  bonusClaims: [],
   badges: [
     { id: "b1", title: "はじめてのお手伝い", icon: "⭐", description: "初めてのお手伝い達成", acquired: true },
     { id: "b2", title: "3日連続達成", icon: "🔥", description: "3日連続でクエスト達成", acquired: true },
     { id: "b3", title: "おそうじ名人", icon: "🧹", description: "掃除タスク10回達成", acquired: true },
     { id: "b4", title: "?????", icon: "🔒", description: "もっとがんばろう", acquired: false },
   ],
-  redemptions: [],
   lastRolloverDate: today(),
   settings: {
     push: true,

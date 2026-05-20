@@ -4,7 +4,7 @@ export interface User {
   id: string;
   name: string;
   role: Role;
-  avatar: string; // emoji
+  avatar: string; // emoji or data URL
   level: number;
   xp: number;
   xpToNext: number;
@@ -34,7 +34,7 @@ export interface AllowanceHistory {
   id: string;
   childId: string;
   taskId?: string;
-  redemptionId?: string;
+  bonusClaimId?: string;
   title: string;
   amount: number;
   type: "earn" | "spend" | "paid";
@@ -63,24 +63,6 @@ export interface TaskTemplate {
   usedCount?: number;
 }
 
-export interface RewardItem {
-  id: string;
-  title: string;
-  icon: string;
-  cost: number;
-  description?: string;
-  stock?: number;
-}
-
-export interface RedemptionRequest {
-  id: string;
-  childId: string;
-  rewardId: string;
-  cost: number;
-  status: "pending" | "confirmed" | "cancelled";
-  createdAt: string;
-}
-
 export interface Badge {
   id: string;
   title: string;
@@ -104,6 +86,27 @@ export interface ParentPin {
   salt: string;
 }
 
+export interface LevelBonus {
+  id: string;
+  level: number;
+  reward: number;
+  title?: string;
+  icon?: string;
+}
+
+export interface BonusClaim {
+  id: string;
+  childId: string;
+  bonusId: string;
+  level: number;
+  reward: number;
+  title?: string;
+  icon?: string;
+  status: "pending" | "confirmed" | "cancelled";
+  achievedAt: string;
+  confirmedAt?: string;
+}
+
 export interface AppState {
   currentUserId: string | null;
   parentPin?: ParentPin;
@@ -114,9 +117,9 @@ export interface AppState {
   tasks: Task[];
   history: AllowanceHistory[];
   notifications: Notification[];
-  rewards: RewardItem[];
   taskTemplates: TaskTemplate[];
-  redemptions: RedemptionRequest[];
+  levelBonuses: LevelBonus[];
+  bonusClaims: BonusClaim[];
   badges: Badge[];
   settings: NotificationSettings;
 }
