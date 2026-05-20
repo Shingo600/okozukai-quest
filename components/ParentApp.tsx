@@ -364,7 +364,7 @@ function SettingsPage({ user }: { user: User }) {
   return (
     <div className="px-4 space-y-3">
       <div className="card px-4 py-4 flex items-center gap-3">
-        <div className="text-3xl">{user.avatar}</div>
+        <Avatar avatar={user.avatar} size={48} />
         <div>
           <div className="font-bold">{user.name}</div>
           <div className="text-xs text-gray-500">通知設定</div>
@@ -636,7 +636,9 @@ function TaskFormModal({
             <div className="flex gap-3">
               {children.map((c) => (
                 <button key={c.id} onClick={() => setAssigned(c.id)} className={`flex flex-col items-center text-xs ${assigned === c.id ? "text-parent-purpleDeep font-bold" : "text-gray-500"}`}>
-                  <div className={`w-12 h-12 rounded-full flex items-center justify-center text-2xl ${assigned === c.id ? "bg-emerald-100 ring-2 ring-emerald-300" : "bg-gray-100"}`}>{c.avatar}</div>
+                  <span className={`rounded-full ${assigned === c.id ? "ring-2 ring-emerald-300" : ""}`}>
+                    <Avatar avatar={c.avatar} size={48} />
+                  </span>
                   <div className="mt-1">{c.name}</div>
                 </button>
               ))}

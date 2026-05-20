@@ -4,18 +4,21 @@ import { getSupabase, hasSupabaseConfig } from "../supabaseClient";
 
 const TABLE = "family_states";
 
-// djb2 ハッシュ（自エコー判定用）
-function hash(s: string): number {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  return h >>> 0;
-}
-function snapshotHash(state: AppState): string {
-  const s = JSON.stringify(state);
-  return `${s.length}:${hash(s)}`;
+// ブラウザタブごとに固有のクライアント ID。
+// 保存時にペイロードに埋め込み、Realtime 受信時に自分のエコーを判定する。
+const CLIENT_ID = (typeof crypto !== "undefined" && "randomUUID" in crypto)
+  ? crypto.randomUUID()
+  : Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+interface StoredEnvelope extends AppState {
+  _meta?: { client: string; ts: number };
 }
 
-let lastSavedHash: string | null = null;
+function stripMeta(s: StoredEnvelope): AppState {
+  const { _meta, ...rest } = s;
+  void _meta;
+  return rest as AppState;
+}
 
 async function requireUserId(): Promise<string> {
   const supabase = getSupabase();
@@ -59,7 +62,6 @@ export const supabaseAdapter: DataAdapter = {
   async signOut() {
     const supabase = getSupabase();
     await supabase.auth.signOut();
-    lastSavedHash = null;
   },
 
   async loadState() {
@@ -72,19 +74,16 @@ export const supabaseAdapter: DataAdapter = {
       .maybeSingle();
     if (error) throw error;
     if (!data) return null;
-    const state = data.state as AppState;
-    lastSavedHash = snapshotHash(state);
-    return state;
+    return stripMeta(data.state as StoredEnvelope);
   },
 
   async saveState(state) {
     const supabase = getSupabase();
     const userId = await requireUserId();
-    const h = snapshotHash(state);
-    lastSavedHash = h;
+    const payload: StoredEnvelope = { ...state, _meta: { client: CLIENT_ID, ts: Date.now() } };
     const { error } = await supabase
       .from(TABLE)
-      .upsert({ family_id: userId, state }, { onConflict: "family_id" });
+      .upsert({ family_id: userId, state: payload }, { onConflict: "family_id" });
     if (error) throw error;
   },
 
@@ -92,7 +91,6 @@ export const supabaseAdapter: DataAdapter = {
     const supabase = getSupabase();
     const userId = await requireUserId();
     await supabase.from(TABLE).delete().eq("family_id", userId);
-    lastSavedHash = null;
   },
 
   subscribe(onChange) {
@@ -106,17 +104,15 @@ export const supabaseAdapter: DataAdapter = {
       const uid = data.session?.user.id;
       if (!uid || !active) return;
       const ch = supabase.channel(`family_state:${uid}`);
-      // postgres_changes は SDK 型シグネチャがやや動的なので any 経由で呼ぶ
       (ch as unknown as { on: (...args: unknown[]) => typeof ch }).on(
         "postgres_changes",
         { event: "*", schema: "public", table: TABLE, filter: `family_id=eq.${uid}` },
-        (payload: { new?: { state?: AppState } }) => {
+        (payload: { new?: { state?: StoredEnvelope } }) => {
           const remote = payload.new?.state;
           if (!remote) return;
-          const h = snapshotHash(remote);
-          if (h === lastSavedHash) return;
-          lastSavedHash = h;
-          onChange(remote);
+          // 自分が保存したエコーなら無視（チラつき防止）
+          if (remote._meta?.client === CLIENT_ID) return;
+          onChange(stripMeta(remote));
         },
       );
       ch.subscribe();
