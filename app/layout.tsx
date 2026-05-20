@@ -28,27 +28,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               if ('serviceWorker' in navigator) {
                 window.addEventListener('load', async () => {
                   try {
+                    // sw.js 自体はブラウザキャッシュさせない
                     var reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
-                    // 新版検出 → 即座にアクティベート
-                    if (reg.waiting) { reg.waiting.postMessage({ type: 'SKIP_WAITING' }); }
-                    reg.addEventListener('updatefound', function() {
-                      var sw = reg.installing;
-                      if (!sw) return;
-                      sw.addEventListener('statechange', function() {
-                        if (sw.state === 'installed' && navigator.serviceWorker.controller) {
-                          sw.postMessage({ type: 'SKIP_WAITING' });
-                        }
-                      });
-                    });
-                    // 30秒ごとに更新チェック（タブが開いている間）
-                    setInterval(function(){ reg.update().catch(function(){}); }, 30000);
-                    // 新ワーカーに制御が切り替わったら一度だけリロード
-                    var reloaded = false;
-                    navigator.serviceWorker.addEventListener('controllerchange', function() {
-                      if (reloaded) return;
-                      reloaded = true;
-                      location.reload();
-                    });
+                    // 1時間ごとに更新チェック（過剰な更新を避ける）
+                    setInterval(function(){ reg.update().catch(function(){}); }, 60 * 60 * 1000);
+                    // 新版は自動適用しない（使用中のページがリロードされてしまうのを防ぐ）。
+                    // 次回タブを開き直したときに自然に新版が有効化される。
                   } catch(e) {}
                 });
               }

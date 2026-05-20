@@ -1,11 +1,11 @@
 /* Service Worker — network-first for navigation, cache-first for static assets */
-const CACHE = "okq-v4";
+const CACHE = "okq-v5";
 const ASSETS = ["/manifest.json", "/icon.svg", "/icon-192.png", "/icon-512.png", "/offline.html"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).catch(() => {}));
-  // 新版が install 完了したら、待たずに有効化
-  self.skipWaiting();
+  // 新版は waiting 状態のままにし、開いているタブを強制リロードしない。
+  // 次回開き直したときに自然に切り替わる。
 });
 
 self.addEventListener("activate", (e) => {
@@ -15,7 +15,7 @@ self.addEventListener("activate", (e) => {
   );
 });
 
-// クライアントからの SKIP_WAITING 要求を受け取る
+// クライアントから明示的な要求があった場合のみ skipWaiting する
 self.addEventListener("message", (e) => {
   if (e.data && e.data.type === "SKIP_WAITING") self.skipWaiting();
 });

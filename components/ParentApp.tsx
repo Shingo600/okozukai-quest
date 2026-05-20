@@ -585,10 +585,10 @@ function TaskFormModal({
                 <button onClick={() => setManageTpl((v) => !v)} className="text-[11px] text-parent-purpleDeep underline">{manageTpl ? "完了" : "編集"}</button>
               </div>
             }>
-              <div className="flex gap-2 overflow-x-auto scroll-no-bar -mx-1 px-1 pb-1">
+              <div className="flex flex-wrap gap-2 pb-1">
                 {sortedTemplates.length === 0 && <div className="text-xs text-gray-400">登録されたタスクはありません</div>}
                 {sortedTemplates.map((tpl) => (
-                  <div key={tpl.id} className="relative shrink-0">
+                  <div key={tpl.id} className="relative">
                     <button
                       onClick={() => pickTemplate(tpl.id)}
                       className={`flex items-center gap-1.5 rounded-full px-3 py-2 border text-xs font-bold transition ${title === tpl.title ? "bg-parent-purple text-white border-parent-purple" : "bg-white text-gray-700 border-gray-200"}`}
