@@ -2,6 +2,8 @@
 import React, { useState } from "react";
 import { useStore, type OnboardingChild } from "@/lib/store";
 import { PinPad } from "./PinPad";
+import { Avatar } from "./Avatar";
+import { resizeToDataUrl } from "@/lib/imageResize";
 
 const AVATAR_PRESETS = ["🧒", "👧", "👦", "🐱", "🐶", "🐰", "🦊", "🐻", "🐼"];
 
@@ -64,12 +66,29 @@ export function Onboarding() {
             {children.map((c, i) => (
               <div key={i} className="space-y-2">
                 <div className="text-xs text-gray-500">こども{i + 1}</div>
-                <input
-                  value={c.name}
-                  onChange={(e) => updateChild(i, { name: e.target.value })}
-                  placeholder="名前"
-                  className="w-full border rounded-xl px-3 py-2 text-sm"
-                />
+                <div className="flex items-center gap-3">
+                  <Avatar avatar={c.avatar} size={56} />
+                  <input
+                    value={c.name}
+                    onChange={(e) => updateChild(i, { name: e.target.value })}
+                    placeholder="名前"
+                    className="flex-1 border rounded-xl px-3 py-2 text-sm"
+                  />
+                </div>
+                <label className="block">
+                  <span className="inline-block text-[11px] text-parent-purpleDeep underline cursor-pointer">📷 写真をアップロード</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const dataUrl = await resizeToDataUrl(file);
+                      updateChild(i, { avatar: dataUrl });
+                    }}
+                  />
+                </label>
                 <div className="flex flex-wrap gap-2">
                   {AVATAR_PRESETS.map((a) => (
                     <button

@@ -6,6 +6,8 @@ import type { RepeatType, Task, User } from "@/lib/types";
 import { todayLocal } from "@/lib/date";
 import { requestNotificationPermission, getPermission } from "@/lib/notify";
 import { PinPad } from "./PinPad";
+import { Avatar } from "./Avatar";
+import { resizeToDataUrl } from "@/lib/imageResize";
 
 export function ParentApp() {
   const { state, currentUser, setCurrentUser, approveTask, rejectTask } = useStore();
@@ -81,7 +83,7 @@ function ParentHome({
           return (
             <div key={t.id} className="card px-3 py-3">
               <div className="flex items-center gap-3">
-                <div className="text-3xl">{child?.avatar}</div>
+                <Avatar avatar={child?.avatar ?? "🧒"} size={40} />
                 <div className="flex-1">
                   <div className="font-bold text-sm">{t.title}</div>
                   <div className="text-xs text-gray-500">{child?.name} から申請</div>
@@ -97,9 +99,109 @@ function ParentHome({
         })}
       </div>
 
+      <UnpaidSummary />
+
       <button onClick={onAdd} className="w-full btn-primary-parent flex items-center justify-center gap-2 py-3">
         タスクを追加する ＋
       </button>
+    </div>
+  );
+}
+
+function UnpaidSummary() {
+  const { state } = useStore();
+  const [openFor, setOpenFor] = useState<string | null>(null);
+  const children = state.users.filter((u) => u.role === "child");
+  // 子供別の未払い earn 履歴を集計
+  const summary = children.map((c) => {
+    const unpaid = state.history.filter((h) => h.childId === c.id && h.type === "earn" && h.status === "approved" && !h.paidAt);
+    const total = unpaid.reduce((a, h) => a + h.amount, 0);
+    return { child: c, unpaid, total };
+  });
+  const totalAll = summary.reduce((a, s) => a + s.total, 0);
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <div className="font-bold text-gray-700">💰 未払いのおこづかい</div>
+        <span className="text-xs text-gray-500">合計 {totalAll.toLocaleString()}円</span>
+      </div>
+      <div className="space-y-2">
+        {summary.length === 0 && <div className="card px-4 py-6 text-center text-sm text-gray-400">子供がまだ登録されていません</div>}
+        {summary.map((s) => (
+          <button
+            key={s.child.id}
+            onClick={() => s.total > 0 && setOpenFor(s.child.id)}
+            disabled={s.total === 0}
+            className="w-full card px-3 py-3 flex items-center gap-3 active:scale-[0.99] disabled:opacity-60"
+          >
+            <Avatar avatar={s.child.avatar} size={40} />
+            <div className="flex-1 text-left">
+              <div className="font-bold text-sm">{s.child.name}</div>
+              <div className="text-xs text-gray-500">{s.unpaid.length}件 未払い</div>
+            </div>
+            <div className="text-right">
+              <div className={`font-extrabold ${s.total > 0 ? "text-rose-500" : "text-gray-400"}`}>{s.total.toLocaleString()}円</div>
+              {s.total > 0 && <div className="text-[10px] text-parent-purpleDeep">支払う ›</div>}
+            </div>
+          </button>
+        ))}
+      </div>
+      {openFor && <PaymentDetailsModal childId={openFor} onClose={() => setOpenFor(null)} />}
+    </>
+  );
+}
+
+function PaymentDetailsModal({ childId, onClose }: { childId: string; onClose: () => void }) {
+  const { state, markPaid } = useStore();
+  const child = state.users.find((u) => u.id === childId);
+  const unpaid = state.history.filter((h) => h.childId === childId && h.type === "earn" && h.status === "approved" && !h.paidAt);
+  const [selected, setSelected] = useState<Set<string>>(new Set(unpaid.map((h) => h.id)));
+  const selectedSum = unpaid.filter((h) => selected.has(h.id)).reduce((a, h) => a + h.amount, 0);
+  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const allOn = () => setSelected(new Set(unpaid.map((h) => h.id)));
+  const allOff = () => setSelected(new Set());
+  const handlePay = () => {
+    if (selected.size === 0) return;
+    markPaid(Array.from(selected));
+    onClose();
+  };
+  return (
+    <div className="fixed inset-0 bg-black/40 z-40 flex items-end" onClick={onClose}>
+      <div className="w-full max-w-[430px] mx-auto bg-white rounded-t-3xl max-h-[85vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <button onClick={onClose} className="text-parent-purpleDeep text-sm">閉じる</button>
+          <div className="font-bold flex items-center gap-2">
+            <Avatar avatar={child?.avatar ?? "🧒"} size={28} />
+            {child?.name} の未払い
+          </div>
+          <div className="w-12" />
+        </div>
+        <div className="px-4 py-2 flex items-center justify-between text-xs text-gray-500">
+          <div>{selected.size}件 選択中 ・ <span className="font-bold text-gray-800">{selectedSum.toLocaleString()}円</span></div>
+          <div className="flex gap-2">
+            <button onClick={allOn} className="text-parent-purpleDeep">全選択</button>
+            <button onClick={allOff} className="text-gray-500">全解除</button>
+          </div>
+        </div>
+        <div className="px-4 pb-4 space-y-2">
+          {unpaid.length === 0 && <div className="text-center text-sm text-gray-400 py-8">未払いはありません 🎉</div>}
+          {unpaid.map((h) => (
+            <label key={h.id} className="card flex items-center gap-3 px-3 py-2">
+              <input type="checkbox" checked={selected.has(h.id)} onChange={() => toggle(h.id)} className="w-5 h-5" />
+              <div className="flex-1">
+                <div className="font-bold text-sm">{h.title}</div>
+                <div className="text-xs text-gray-500">{h.createdAt}</div>
+              </div>
+              <div className="font-bold text-green-600">+{h.amount}円</div>
+            </label>
+          ))}
+        </div>
+        <div className="sticky bottom-0 bg-white border-t px-4 py-3">
+          <button onClick={handlePay} disabled={selected.size === 0} className="w-full btn-primary-parent py-3 disabled:opacity-50">
+            選択分（{selectedSum.toLocaleString()}円）を支払い済みに
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -175,7 +277,7 @@ function ApprovalPage({ onApprove, onReject }: { onApprove: (id: string) => void
         return (
           <div key={t.id} className="card px-3 py-3">
             <div className="flex items-center gap-3">
-              <div className="text-3xl">{child?.avatar}</div>
+              <Avatar avatar={child?.avatar ?? "🧒"} size={40} />
               <div className="flex-1">
                 <div className="font-bold text-sm">{t.icon} {t.title}</div>
                 <div className="text-xs text-gray-500">{child?.name} ・ {t.reward}円</div>
@@ -232,13 +334,18 @@ function ParentHistory() {
         {state.history.map((h) => {
           const child = state.users.find((u) => u.id === h.childId);
           const isSpend = h.type === "spend";
+          const isEarn = h.type === "earn";
+          const paid = !!h.paidAt;
           return (
             <div key={h.id} className="card flex items-center gap-3 px-3 py-3">
               <div className="text-xs text-gray-500 w-12">{h.createdAt.slice(5)}</div>
-              <div className="text-2xl">{child?.avatar}</div>
+              <Avatar avatar={child?.avatar ?? "🧒"} size={32} />
               <div className="flex-1">
                 <div className="font-bold text-sm">{h.title}</div>
-                <div className={`text-xs ${h.status === "approved" ? "text-green-600" : "text-amber-600"}`}>{h.status === "approved" ? "承認済み" : "未確定"}</div>
+                <div className={`text-xs ${h.status === "approved" ? "text-green-600" : "text-amber-600"}`}>
+                  {h.status === "approved" ? "承認済み" : "未確定"}
+                  {isEarn && (paid ? <span className="ml-2 text-blue-600">💰 支払い済</span> : <span className="ml-2 text-gray-400">未払い</span>)}
+                </div>
               </div>
               <div className={`font-bold ${isSpend ? "text-rose-500" : "text-green-600"}`}>{isSpend ? "" : "+"}{h.amount}円</div>
             </div>
@@ -253,6 +360,7 @@ function SettingsPage({ user }: { user: User }) {
   const { state, updateSettings, signOut, setPin, resetAll, lockParent, setCurrentUser } = useStore();
   const s = state.settings;
   const [showPinChange, setShowPinChange] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
   return (
     <div className="px-4 space-y-3">
       <div className="card px-4 py-4 flex items-center gap-3">
@@ -284,6 +392,20 @@ function SettingsPage({ user }: { user: User }) {
           className="text-sm font-bold bg-transparent text-parent-purpleDeep"
         />
       </div>
+      <div className="text-xs text-gray-400 px-2 mt-4">家族のプロフィール</div>
+      <div className="space-y-2">
+        {state.users.map((u) => (
+          <button key={u.id} onClick={() => setEditingUserId(u.id)} className="w-full card flex items-center gap-3 px-3 py-3 active:scale-[0.99]">
+            <Avatar avatar={u.avatar} size={40} />
+            <div className="flex-1 text-left">
+              <div className="font-bold text-sm">{u.name}</div>
+              <div className="text-xs text-gray-500">{u.role === "child" ? "こども" : u.role === "mother" ? "ママ" : "パパ"}</div>
+            </div>
+            <div className="text-xs text-gray-400">編集 ›</div>
+          </button>
+        ))}
+      </div>
+
       <div className="text-xs text-gray-400 px-2 mt-4">セキュリティ</div>
       <button onClick={() => setShowPinChange(true)} className="w-full card px-4 py-3 text-sm font-bold text-parent-purpleDeep">PIN を変更する</button>
       <button onClick={() => { lockParent(); setCurrentUser(null); }} className="w-full card px-4 py-3 text-sm font-bold text-gray-700">親モードを終了</button>
@@ -311,6 +433,70 @@ function SettingsPage({ user }: { user: User }) {
           </div>
         </div>
       )}
+
+      {editingUserId && <ProfileEditModal userId={editingUserId} onClose={() => setEditingUserId(null)} />}
+    </div>
+  );
+}
+
+const AVATAR_PRESETS = ["🧒", "👧", "👦", "👩", "👨", "🐱", "🐶", "🐰", "🦊", "🐻", "🐼"];
+
+function ProfileEditModal({ userId, onClose }: { userId: string; onClose: () => void }) {
+  const { state, updateUser } = useStore();
+  const user = state.users.find((u) => u.id === userId);
+  const [name, setName] = useState(user?.name ?? "");
+  const [avatar, setAvatar] = useState(user?.avatar ?? "🧒");
+  const [busy, setBusy] = useState(false);
+  if (!user) return null;
+
+  const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBusy(true);
+    try {
+      const dataUrl = await resizeToDataUrl(file);
+      setAvatar(dataUrl);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const save = () => {
+    updateUser(userId, { name: name.trim() || user.name, avatar });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-40 flex items-end" onClick={onClose}>
+      <div className="w-full max-w-[430px] mx-auto bg-white rounded-t-3xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <button onClick={onClose} className="text-parent-purpleDeep text-sm">キャンセル</button>
+          <div className="font-bold">プロフィール編集</div>
+          <button onClick={save} className="text-parent-purpleDeep text-sm font-bold">保存</button>
+        </div>
+        <div className="px-4 py-4 space-y-4 text-sm">
+          <div className="flex flex-col items-center gap-2">
+            <Avatar avatar={avatar} size={96} />
+            <label className="btn-primary-parent text-xs px-3 py-2 cursor-pointer">
+              写真を選ぶ
+              <input type="file" accept="image/*" className="hidden" onChange={onPickFile} />
+            </label>
+            {busy && <div className="text-[11px] text-gray-400">画像を処理中…</div>}
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 mb-1">名前</div>
+            <input value={name} onChange={(e) => setName(e.target.value)} className="w-full border rounded-xl px-3 py-2" />
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 mb-1">絵文字に戻す</div>
+            <div className="flex flex-wrap gap-2">
+              {AVATAR_PRESETS.map((a) => (
+                <button key={a} onClick={() => setAvatar(a)} className={`w-10 h-10 rounded-xl text-2xl flex items-center justify-center ${avatar === a ? "bg-emerald-100 ring-2 ring-emerald-300" : "bg-gray-100"}`}>{a}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

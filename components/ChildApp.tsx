@@ -3,6 +3,7 @@ import React, { useState, useMemo } from "react";
 import { useStore } from "@/lib/store";
 import { ChildNav, type ChildTab } from "./BottomNav";
 import type { Task, User } from "@/lib/types";
+import { Avatar } from "./Avatar";
 
 export function ChildApp() {
   const { state, currentUser, setCurrentUser, markAllRead } = useStore();
@@ -53,7 +54,7 @@ function ChildHome({ child, tasks }: { child: User; tasks: Task[] }) {
   return (
     <div className="px-4 space-y-4">
       <div className="flex items-start gap-3">
-        <div className="text-5xl">{mother?.avatar ?? "👩"}</div>
+        <Avatar avatar={mother?.avatar ?? "👩"} size={56} />
         <div className="relative bg-white rounded-2xl px-4 py-3 shadow-soft text-sm flex-1">
           <div>おはよう！</div>
           <div>今日もお手伝いよろしくね♪</div>
@@ -127,7 +128,7 @@ function QuestPage({ child }: { child: User }) {
     <div className="px-4 space-y-4">
       <div className="card px-4 py-4 bg-gradient-to-b from-white to-emerald-50 text-center">
         <div className="inline-block bg-kid-green text-white text-xs font-bold rounded-full px-3 py-1">お手伝いレベル</div>
-        <div className="text-6xl my-2">{child.avatar}</div>
+        <div className="my-2 flex justify-center"><Avatar avatar={child.avatar} size={80} /></div>
         <div className="text-3xl font-extrabold text-gray-800">Lv. {child.level}</div>
         <div className="mt-3 h-3 bg-gray-100 rounded-full overflow-hidden">
           <div className="h-full bg-gradient-to-r from-kid-yellow to-orange-300" style={{ width: `${pct}%` }} />
@@ -173,7 +174,7 @@ function QuestPage({ child }: { child: User }) {
       </div>
 
       <div className="flex items-start gap-3">
-        <div className="text-5xl">{father?.avatar ?? "👨"}</div>
+        <Avatar avatar={father?.avatar ?? "👨"} size={56} />
         <div className="relative bg-white rounded-2xl px-4 py-3 shadow-soft text-sm flex-1">
           <div>いつもありがとう！</div>
           <div>助かってるよ</div>
@@ -260,13 +261,18 @@ function HistoryPage({ child }: { child: User }) {
       <div className="space-y-2">
         {mine.map((h) => {
           const isSpend = h.type === "spend";
+          const isEarn = h.type === "earn";
+          const paid = !!h.paidAt;
           return (
             <div key={h.id} className="card flex items-center gap-3 px-3 py-3">
               <div className="text-xs text-gray-500 w-12">{h.createdAt.slice(5)}</div>
-              <div className="text-2xl">{child.avatar}</div>
+              <Avatar avatar={child.avatar} size={32} />
               <div className="flex-1">
                 <div className="font-bold text-sm">{h.title}</div>
-                <div className={`text-xs ${h.status === "approved" ? "text-green-600" : "text-amber-600"}`}>{h.status === "approved" ? "承認済み" : "未確定"}</div>
+                <div className={`text-xs ${h.status === "approved" ? "text-green-600" : "text-amber-600"}`}>
+                  {h.status === "approved" ? "承認済み" : "未確定"}
+                  {isEarn && (paid ? <span className="ml-2 text-blue-600">💰 支払い済</span> : <span className="ml-2 text-gray-400">貯金中</span>)}
+                </div>
               </div>
               <div className={`font-bold ${isSpend ? "text-rose-500" : "text-green-600"}`}>{isSpend ? "" : "+"}{h.amount}円</div>
             </div>
@@ -282,7 +288,7 @@ function MyPage({ child }: { child: User }) {
   return (
     <div className="px-4 space-y-3">
       <div className="card px-4 py-5 text-center">
-        <div className="text-6xl">{child.avatar}</div>
+        <div className="flex justify-center"><Avatar avatar={child.avatar} size={80} /></div>
         <div className="font-extrabold text-lg mt-2">{child.name}</div>
         <div className="text-xs text-gray-500">Lv.{child.level} ・ {child.streakDays}日連続</div>
       </div>

@@ -53,6 +53,9 @@ interface Ctx {
   setPin: (pin: string) => Promise<void>;
   verifyPinAndUnlock: (pin: string) => Promise<boolean>;
   lockParent: () => void;
+  updateUser: (id: string, patch: Partial<Pick<User, "name" | "avatar">>) => void;
+  markPaid: (historyIds: string[]) => void;
+  unmarkPaid: (historyId: string) => void;
   // tasks
   addTask: (t: Omit<Task, "id" | "status" | "createdAt">) => void;
   updateTask: (id: string, patch: Partial<Omit<Task, "id">>) => void;
@@ -221,6 +224,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [state.parentPin]);
 
   const lockParent = useCallback(() => setParentUnlocked(false), []);
+
+  const updateUser = useCallback((id: string, patch: Partial<Pick<User, "name" | "avatar">>) => {
+    setState((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...patch } : u)) }));
+  }, []);
+
+  const markPaid = useCallback((historyIds: string[]) => {
+    const ids = new Set(historyIds);
+    const today = todayLocal();
+    setState((s) => ({
+      ...s,
+      history: s.history.map((h) => (ids.has(h.id) ? { ...h, paidAt: today } : h)),
+    }));
+  }, []);
+
+  const unmarkPaid = useCallback((historyId: string) => {
+    setState((s) => ({
+      ...s,
+      history: s.history.map((h) => (h.id === historyId ? { ...h, paidAt: undefined } : h)),
+    }));
+  }, []);
 
   const signOut = useCallback(async () => {
     try { await api.signOut(); } catch {}
@@ -482,6 +505,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     state, currentUser, setCurrentUser, resetDemo, signOut,
     hydrated, needsOnboarding, parentUnlocked,
     completeOnboarding, resetAll, setPin, verifyPinAndUnlock, lockParent,
+    updateUser, markPaid, unmarkPaid,
     addTask, updateTask, deleteTask, moveTask, submitTask, approveTask, rejectTask,
     markNotificationRead, markAllRead, pushNotification, updateSettings,
     addTemplate, removeTemplate,

@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import { useStore } from "@/lib/store";
 import { PinPad } from "./PinPad";
+import { Avatar } from "./Avatar";
 
 export function UserSwitch() {
   const { state, setCurrentUser, parentUnlocked, verifyPinAndUnlock } = useStore();
@@ -91,7 +92,7 @@ function Section({ title, color, children }: { title: string; color: string; chi
 function UserCard({ avatar, name, sub, onClick }: { avatar: string; name: string; sub: string; onClick: () => void }) {
   return (
     <button onClick={onClick} className="w-full card flex items-center gap-3 px-4 py-3 hover:scale-[1.01] active:scale-95 transition">
-      <div className="w-12 h-12 rounded-full bg-kid-yellow/40 flex items-center justify-center text-2xl">{avatar}</div>
+      <Avatar avatar={avatar} size={48} />
       <div className="text-left flex-1">
         <div className="font-bold text-gray-800">{name}</div>
         <div className="text-xs text-gray-500">{sub}</div>

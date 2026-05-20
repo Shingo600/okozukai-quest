@@ -39,6 +39,7 @@ export interface AllowanceHistory {
   type: "earn" | "spend" | "paid";
   status: "approved" | "pending";
   createdAt: string;
+  paidAt?: string;
 }
 
 export type NotificationType = "task" | "approval" | "reminder" | "system";
