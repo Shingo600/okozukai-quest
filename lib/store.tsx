@@ -85,11 +85,27 @@ interface Ctx {
 
 const StoreContext = createContext<Ctx | null>(null);
 
+const LOCAL_CURRENT_USER_KEY = "okq-local-current-user";
+
+function readLocalCurrentUserId(): string | null {
+  if (typeof window === "undefined") return null;
+  try { return window.localStorage.getItem(LOCAL_CURRENT_USER_KEY); } catch { return null; }
+}
+function writeLocalCurrentUserId(id: string | null) {
+  if (typeof window === "undefined") return;
+  try {
+    if (id) window.localStorage.setItem(LOCAL_CURRENT_USER_KEY, id);
+    else window.localStorage.removeItem(LOCAL_CURRENT_USER_KEY);
+  } catch {}
+}
+
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(() => createEmptyState());
   const [hydrated, setHydrated] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [parentUnlocked, setParentUnlocked] = useState(false);
+  // 端末ごとにログイン中のプロフィールを管理（Supabase には保存しない）
+  const [localCurrentUserId, setLocalCurrentUserId] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // hydrate + rollover + realtime subscribe
@@ -97,23 +113,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     let unsubChange = () => {};
     let unsubAuth = () => {};
+    // 端末ローカルの最終ログインユーザを復元
+    setLocalCurrentUserId(readLocalCurrentUserId());
     (async () => {
       const loaded = await api.loadState();
       if (cancelled) return;
       const base = loaded ? mergeWithDefaults(loaded) : createEmptyState();
       const rolled = rolloverIfNeeded(base);
-      setState(rolled);
+      // 共有 state の currentUserId は無視（端末ローカルで管理）
+      setState({ ...rolled, currentUserId: null });
       setHydrated(true);
-      // 他端末からの変更を受信
+      // 他端末からの変更を受信。currentUserId は端末ローカルなので無視
       unsubChange = api.subscribe((remote) => {
         const merged = mergeWithDefaults(remote);
-        setState(rolloverIfNeeded(merged));
+        setState({ ...rolloverIfNeeded(merged), currentUserId: null });
       });
       // セッション変化（サインアウト等）
       unsubAuth = api.onAuthChange((s) => {
         if (!s) {
           setState(createEmptyState());
           setParentUnlocked(false);
+          setLocalCurrentUserId(null);
+          writeLocalCurrentUserId(null);
           setHydrated(false);
         }
       });
@@ -121,11 +142,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; unsubChange(); unsubAuth(); };
   }, []);
 
-  // 永続化（デバウンス）
+  // 永続化（デバウンス）。currentUserId はサーバに送らない
   useEffect(() => {
     if (!hydrated) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => { void api.saveState(state); }, 250);
+    saveTimer.current = setTimeout(() => {
+      void api.saveState({ ...state, currentUserId: null });
+    }, 250);
   }, [state, hydrated]);
 
   // 権限要求トースト（hydrate 後に1回）
@@ -175,7 +198,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const dismissToast = useCallback((id: string) => setToasts((p) => p.filter((t) => t.id !== id)), []);
 
-  const setCurrentUser = useCallback((id: string | null) => setState((s) => ({ ...s, currentUserId: id })), []);
+  const setCurrentUser = useCallback((id: string | null) => {
+    setLocalCurrentUserId(id);
+    writeLocalCurrentUserId(id);
+  }, []);
 
   // 開発用：デモデータに置き換え。
   const resetDemo = useCallback(() => {
@@ -190,6 +216,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const fresh = createEmptyState();
     setState(fresh);
     setParentUnlocked(false);
+    setLocalCurrentUserId(null);
+    writeLocalCurrentUserId(null);
     // parentPin が undefined になることで page 側が Onboarding を表示する
   }, []);
 
@@ -497,7 +525,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const currentUser = useMemo(() => state.users.find((u) => u.id === state.currentUserId) ?? null, [state]);
+  const currentUser = useMemo(() => state.users.find((u) => u.id === localCurrentUserId) ?? null, [state, localCurrentUserId]);
 
   const needsOnboarding = hydrated && !state.parentPin;
 
