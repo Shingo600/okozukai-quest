@@ -1,13 +1,13 @@
 {
   "name": "okozukai-quest",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
     "gen-icons": "node scripts/gen-icons.mjs",
     "harness:check": "node scripts/harness-check.mjs && npm run typecheck"
   },
