@@ -358,10 +358,16 @@ function ParentHistory() {
 }
 
 function SettingsPage({ user }: { user: User }) {
-  const { state, updateSettings, signOut, setPin, resetAll, lockParent, setCurrentUser } = useStore();
+  const { state, updateSettings, signOut, setPin, resetAll, lockParent, setCurrentUser,
+    snapshots, refreshSnapshots, createSnapshotNow, restoreFromSnapshot, deleteSnapshotById } = useStore();
   const s = state.settings;
   const [showPinChange, setShowPinChange] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [snapBusy, setSnapBusy] = useState(false);
+  const [showSnapshots, setShowSnapshots] = useState(false);
+  React.useEffect(() => {
+    if (showSnapshots) void refreshSnapshots();
+  }, [showSnapshots, refreshSnapshots]);
   return (
     <div className="px-4 space-y-3">
       <div className="card px-4 py-4 flex items-center gap-3">
@@ -412,6 +418,69 @@ function SettingsPage({ user }: { user: User }) {
       <div className="text-xs text-gray-400 px-2 mt-4">セキュリティ</div>
       <button onClick={() => setShowPinChange(true)} className="w-full card px-4 py-3 text-sm font-bold text-parent-purpleDeep">PIN を変更する</button>
       <button onClick={() => { lockParent(); setCurrentUser(null); }} className="w-full card px-4 py-3 text-sm font-bold text-gray-700">親モードを終了</button>
+
+      <div className="text-xs text-gray-400 px-2 mt-4">💾 データのバックアップ</div>
+      <button
+        onClick={() => setShowSnapshots((v) => !v)}
+        className="w-full card px-4 py-3 text-sm font-bold text-parent-purpleDeep flex items-center justify-between"
+      >
+        <span>スナップショット {showSnapshots ? "を閉じる" : "を見る"}</span>
+        <span className="text-xs text-gray-400">{snapshots.length} 件</span>
+      </button>
+      {showSnapshots && (
+        <div className="card px-3 py-3 space-y-2">
+          <button
+            onClick={async () => {
+              const label = window.prompt("ラベル（任意）", "手動") ?? undefined;
+              setSnapBusy(true);
+              try { await createSnapshotNow(label); }
+              catch (e) { alert(e instanceof Error ? e.message : "失敗"); }
+              finally { setSnapBusy(false); }
+            }}
+            disabled={snapBusy}
+            className="w-full btn-primary-parent text-xs py-2 disabled:opacity-50"
+          >
+            ＋ 今すぐスナップショット作成
+          </button>
+          {snapshots.length === 0 && <div className="text-xs text-gray-400 text-center py-3">スナップショットはまだありません</div>}
+          {snapshots.map((sn) => {
+            const dt = new Date(sn.createdAt);
+            const label = sn.label || "Auto";
+            return (
+              <div key={sn.id} className="flex items-center gap-2 text-xs border-t pt-2 first:border-t-0 first:pt-0">
+                <div className="flex-1">
+                  <div className="font-bold">{dt.getMonth() + 1}/{dt.getDate()} {String(dt.getHours()).padStart(2, "0")}:{String(dt.getMinutes()).padStart(2, "0")}</div>
+                  <div className="text-gray-500">{label}</div>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!window.confirm(`このスナップショットに戻しますか？\n${dt.toLocaleString()} - ${label}`)) return;
+                    if (!window.confirm("現在のデータは完全に上書きされます。本当に復元しますか？")) return;
+                    setSnapBusy(true);
+                    try { await restoreFromSnapshot(sn.id); alert("復元しました。再ログインが必要な場合があります。"); }
+                    catch (e) { alert(e instanceof Error ? e.message : "失敗"); }
+                    finally { setSnapBusy(false); }
+                  }}
+                  disabled={snapBusy}
+                  className="rounded-full bg-parent-purple/20 text-parent-purpleDeep font-bold px-3 py-1 disabled:opacity-50"
+                >復元</button>
+                <button
+                  onClick={async () => {
+                    if (!window.confirm("このスナップショットを削除しますか？")) return;
+                    setSnapBusy(true);
+                    try { await deleteSnapshotById(sn.id); }
+                    catch (e) { alert(e instanceof Error ? e.message : "失敗"); }
+                    finally { setSnapBusy(false); }
+                  }}
+                  disabled={snapBusy}
+                  className="rounded-full bg-rose-100 text-rose-600 font-bold px-3 py-1 disabled:opacity-50"
+                >削除</button>
+              </div>
+            );
+          })}
+          <div className="text-[10px] text-gray-400 text-center pt-2">直近30件まで保管。古いものから自動削除されます。</div>
+        </div>
+      )}
 
       <div className="text-xs text-gray-400 px-2 mt-4">アカウント</div>
       <button

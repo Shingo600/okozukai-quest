@@ -16,6 +16,8 @@
 1. ダッシュボード左メニュー → **SQL Editor** → **New query**
 2. 本リポジトリ `supabase/schema.sql` の中身を貼り付けて **Run**
 3. `family_states` テーブルが作成され、RLS とリアルタイム購読が有効になる
+4. **続けてバックアップ用テーブルを作成**: 新しい query で `supabase/snapshots.sql` の中身を貼り付けて **Run**
+5. `family_state_snapshots` テーブルが作成され、RLS が有効になる（直近30件のスナップショット保管に使う）
 
 ## 3. 認証設定
 

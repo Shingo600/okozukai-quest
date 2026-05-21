@@ -3,6 +3,7 @@ import type { DataAdapter } from "./types";
 import { getSupabase, hasSupabaseConfig } from "../supabaseClient";
 
 const TABLE = "family_states";
+const SNAP_TABLE = "family_state_snapshots";
 
 // ブラウザタブごとに固有のクライアント ID。
 // 保存時にペイロードに埋め込み、Realtime 受信時に自分のエコーを判定する。
@@ -91,6 +92,79 @@ export const supabaseAdapter: DataAdapter = {
     const supabase = getSupabase();
     const userId = await requireUserId();
     await supabase.from(TABLE).delete().eq("family_id", userId);
+  },
+
+  // --- スナップショット ---
+  async listSnapshots() {
+    const supabase = getSupabase();
+    const userId = await requireUserId();
+    const { data, error } = await supabase
+      .from(SNAP_TABLE)
+      .select("id, label, created_at")
+      .eq("family_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(60);
+    if (error) throw error;
+    return (data ?? []).map((r) => ({
+      id: r.id as string,
+      label: (r.label as string | null) ?? undefined,
+      createdAt: r.created_at as string,
+    }));
+  },
+
+  async createSnapshot(state, label) {
+    const supabase = getSupabase();
+    const userId = await requireUserId();
+    // _meta は AppState 外の付帯情報。スナップショットには含めずクリーンに保存
+    const { error: insErr, data: ins } = await supabase
+      .from(SNAP_TABLE)
+      .insert({ family_id: userId, state, label: label ?? null })
+      .select("id, label, created_at")
+      .single();
+    if (insErr) throw insErr;
+    // 30件超過分を古い順に削除
+    const { data: extra, error: selErr } = await supabase
+      .from(SNAP_TABLE)
+      .select("id")
+      .eq("family_id", userId)
+      .order("created_at", { ascending: false })
+      .range(30, 999);
+    if (!selErr && extra && extra.length > 0) {
+      const ids = extra.map((r) => r.id as string);
+      await supabase.from(SNAP_TABLE).delete().eq("family_id", userId).in("id", ids);
+    }
+    return {
+      id: ins.id as string,
+      label: (ins.label as string | null) ?? undefined,
+      createdAt: ins.created_at as string,
+    };
+  },
+
+  async restoreSnapshot(id) {
+    const supabase = getSupabase();
+    const userId = await requireUserId();
+    const { data, error } = await supabase
+      .from(SNAP_TABLE)
+      .select("state")
+      .eq("family_id", userId)
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("snapshot not found");
+    const state = data.state as AppState;
+    // 本体テーブルに復元（_meta はこの保存で付け直される）
+    const payload: StoredEnvelope = { ...state, _meta: { client: CLIENT_ID, ts: Date.now() } };
+    const { error: upErr } = await supabase
+      .from(TABLE)
+      .upsert({ family_id: userId, state: payload }, { onConflict: "family_id" });
+    if (upErr) throw upErr;
+    return state;
+  },
+
+  async deleteSnapshot(id) {
+    const supabase = getSupabase();
+    const userId = await requireUserId();
+    await supabase.from(SNAP_TABLE).delete().eq("family_id", userId).eq("id", id);
   },
 
   subscribe(onChange) {

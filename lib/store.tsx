@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState, useCall
 import type {
   AppState, Task, User, Notification, AllowanceHistory, NotificationSettings, RepeatType, TaskTemplate, LevelBonus, BonusClaim,
 } from "./types";
+import type { Snapshot } from "./api/types";
 import { createDemoState, createEmptyState } from "./demoData";
 import { hashPin, verifyPin } from "./pin";
 import { api } from "./api";
@@ -80,6 +81,12 @@ interface Ctx {
   deleteLevelBonus: (id: string) => void;
   confirmBonusClaim: (claimId: string) => void;
   cancelBonusClaim: (claimId: string) => void;
+  // バックアップ
+  snapshots: Snapshot[];
+  refreshSnapshots: () => Promise<void>;
+  createSnapshotNow: (label?: string) => Promise<void>;
+  restoreFromSnapshot: (id: string) => Promise<void>;
+  deleteSnapshotById: (id: string) => Promise<void>;
   // toasts (UI演出)
   toasts: ToastItem[];
   pushToast: (t: Omit<ToastItem, "id">) => void;
@@ -116,6 +123,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // setTimeout のクロージャに古い state が焼き付くのを防ぐため、最新 state を ref で参照する
   const stateRef = useRef(state);
   stateRef.current = state;
+  // 自動スナップショット二重実行ガード
+  const isSnapshottingRef = useRef(false);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
 
   // hydrate + rollover + realtime subscribe
   useEffect(() => {
@@ -174,10 +184,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
     remoteSnapshotRef.current = null;
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
+    saveTimer.current = setTimeout(async () => {
       saveTimer.current = null;
       // クロージャに焼き付いた古い state を使わず、必ず最新を参照
-      void api.saveState({ ...stateRef.current, currentUserId: null });
+      const current = stateRef.current;
+      try {
+        await api.saveState({ ...current, currentUserId: null });
+      } catch { /* 失敗は黙殺（オフライン等） */ }
+      // 自動スナップショット：その日の最初の save 時のみ実行
+      const today = todayLocal();
+      if (!isSnapshottingRef.current && current.lastSnapshotDate !== today) {
+        isSnapshottingRef.current = true;
+        try {
+          await api.createSnapshot({ ...current, lastSnapshotDate: today, currentUserId: null }, "Auto");
+          // lastSnapshotDate を更新（次の save で永続化される）
+          setState((s) => ({ ...s, lastSnapshotDate: today }));
+        } catch { /* 失敗してもアプリは動く */ }
+        finally { isSnapshottingRef.current = false; }
+      }
     }, 250);
   }, [state, hydrated]);
 
@@ -594,6 +618,30 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  // --- スナップショット ---
+  const refreshSnapshots = useCallback(async () => {
+    try { setSnapshots(await api.listSnapshots()); }
+    catch { setSnapshots([]); }
+  }, []);
+  const createSnapshotNow = useCallback(async (label?: string) => {
+    await api.createSnapshot({ ...stateRef.current, currentUserId: null }, label && label.trim() ? label.trim() : "手動");
+    await refreshSnapshots();
+  }, [refreshSnapshots]);
+  const restoreFromSnapshot = useCallback(async (id: string) => {
+    const restored = await api.restoreSnapshot(id);
+    const next: AppState = { ...rolloverIfNeeded(mergeWithDefaults(restored)), currentUserId: null };
+    remoteSnapshotRef.current = next;
+    setState(next);
+    setParentUnlocked(false);
+    setLocalCurrentUserId(null);
+    writeLocalCurrentUserId(null);
+    await refreshSnapshots();
+  }, [refreshSnapshots]);
+  const deleteSnapshotById = useCallback(async (id: string) => {
+    await api.deleteSnapshot(id);
+    await refreshSnapshots();
+  }, [refreshSnapshots]);
+
   const currentUser = useMemo(() => state.users.find((u) => u.id === localCurrentUserId) ?? null, [state, localCurrentUserId]);
 
   const needsOnboarding = hydrated && !state.parentPin;
@@ -607,6 +655,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     markNotificationRead, markAllRead, pushNotification, updateSettings,
     addTemplate, removeTemplate,
     addLevelBonus, updateLevelBonus, deleteLevelBonus, confirmBonusClaim, cancelBonusClaim,
+    snapshots, refreshSnapshots, createSnapshotNow, restoreFromSnapshot, deleteSnapshotById,
     toasts, pushToast, dismissToast,
   };
 

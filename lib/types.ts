@@ -112,6 +112,7 @@ export interface AppState {
   parentPin?: ParentPin;
   lastRolloverDate?: string;
   lastReminderDate?: string;
+  lastSnapshotDate?: string;
   taskOrder?: string[];
   users: User[];
   tasks: Task[];
