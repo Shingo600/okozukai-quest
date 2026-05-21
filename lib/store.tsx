@@ -113,6 +113,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // 直近のリモート適用時の参照を覚えておき、save 不要かを判定する。
   // ローカルで setState されると state の参照が変わるので、参照一致なら save スキップ。
   const remoteSnapshotRef = useRef<AppState | null>(null);
+  // setTimeout のクロージャに古い state が焼き付くのを防ぐため、最新 state を ref で参照する
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   // hydrate + rollover + realtime subscribe
   useEffect(() => {
@@ -127,7 +130,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const base = loaded ? mergeWithDefaults(loaded) : createEmptyState();
       const rolled = rolloverIfNeeded(base);
       // 共有 state の currentUserId は無視（端末ローカルで管理）
-      setState({ ...rolled, currentUserId: null });
+      const initial: AppState = { ...rolled, currentUserId: null };
+      // 初回 hydrate 時に余計な save が走らないよう、リモート由来扱いにする
+      remoteSnapshotRef.current = initial;
+      setState(initial);
       setHydrated(true);
       // 他端末からの変更を受信。currentUserId は端末ローカルなので無視。
       // 適用した state の参照を覚えて、useEffect 側で「参照一致なら save 不要」と判定する。
@@ -158,13 +164,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!hydrated) return;
     if (remoteSnapshotRef.current === state) {
+      // リモート反映直後は save 不要。pending save も古いデータなのでキャンセル
       remoteSnapshotRef.current = null;
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
       return;
     }
     remoteSnapshotRef.current = null;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      void api.saveState({ ...state, currentUserId: null });
+      saveTimer.current = null;
+      // クロージャに焼き付いた古い state を使わず、必ず最新を参照
+      void api.saveState({ ...stateRef.current, currentUserId: null });
     }, 250);
   }, [state, hydrated]);
 
