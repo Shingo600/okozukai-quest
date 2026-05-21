@@ -104,7 +104,14 @@ export const supabaseAdapter: DataAdapter = {
       .eq("family_id", userId)
       .order("created_at", { ascending: false })
       .limit(60);
-    if (error) throw error;
+    if (error) {
+      // テーブル未作成のときは静かに空リストを返す（初回は普通）
+      if (/does not exist|relation .* does not exist/i.test(error.message)) {
+        console.warn("family_state_snapshots テーブルが未作成です。supabase/snapshots.sql を適用してください。");
+        return [];
+      }
+      throw error;
+    }
     return (data ?? []).map((r) => ({
       id: r.id as string,
       label: (r.label as string | null) ?? undefined,
@@ -121,7 +128,12 @@ export const supabaseAdapter: DataAdapter = {
       .insert({ family_id: userId, state, label: label ?? null })
       .select("id, label, created_at")
       .single();
-    if (insErr) throw insErr;
+    if (insErr) {
+      if (/does not exist|relation .* does not exist/i.test(insErr.message)) {
+        throw new Error("バックアップ用テーブルが未作成です。supabase/snapshots.sql を Supabase で実行してください。");
+      }
+      throw insErr;
+    }
     // 30件超過分を古い順に削除
     const { data: extra, error: selErr } = await supabase
       .from(SNAP_TABLE)

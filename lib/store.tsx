@@ -195,12 +195,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const today = todayLocal();
       if (!isSnapshottingRef.current && current.lastSnapshotDate !== today) {
         isSnapshottingRef.current = true;
+        let snapOk = false;
         try {
           await api.createSnapshot({ ...current, lastSnapshotDate: today, currentUserId: null }, "Auto");
-          // lastSnapshotDate を更新（次の save で永続化される）
-          setState((s) => ({ ...s, lastSnapshotDate: today }));
-        } catch { /* 失敗してもアプリは動く */ }
-        finally { isSnapshottingRef.current = false; }
+          snapOk = true;
+        } catch {
+          // テーブル未作成などで失敗してもアプリ本体は動かす
+        }
+        // 成功時のみ lastSnapshotDate を進める（失敗時は次回 save でリトライ）
+        if (snapOk) setState((s) => ({ ...s, lastSnapshotDate: today }));
+        isSnapshottingRef.current = false;
       }
     }, 250);
   }, [state, hydrated]);
