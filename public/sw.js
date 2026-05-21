@@ -1,5 +1,5 @@
-/* Service Worker — network-first for navigation, cache-first for static assets */
-const CACHE = "okq-v5";
+/* Service Worker — same-origin only. Cross-origin (Supabase 等) は触らない */
+const CACHE = "okq-v6";
 const ASSETS = ["/manifest.json", "/icon.svg", "/icon-192.png", "/icon-512.png", "/offline.html"];
 
 self.addEventListener("install", (e) => {
@@ -24,6 +24,12 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
 
+  // クロスオリジン（Supabase など外部 API）は SW で触らない。
+  // ここで return すれば、ブラウザがそのままネットワークに直接出る。
+  let url;
+  try { url = new URL(req.url); } catch { return; }
+  if (url.origin !== self.location.origin) return;
+
   // ナビゲーション（HTMLページ）は network-first
   if (req.mode === "navigate") {
     event.respondWith(
@@ -45,7 +51,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // それ以外（JS/CSS/画像/manifest等）は cache-first + 背景更新
+  // 同一オリジンの静的アセット（JS/CSS/画像/manifest等）は cache-first + 背景更新
   event.respondWith(
     caches.match(req).then((cached) => {
       const fetchPromise = fetch(req)
