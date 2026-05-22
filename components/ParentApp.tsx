@@ -18,10 +18,16 @@ export function ParentApp() {
   if (!currentUser) return null;
 
   const pending = state.tasks.filter((t) => t.status === "submitted");
-  const approved = state.tasks.filter((t) => t.status === "approved");
-  const planned = state.tasks.reduce((a, t) => a + t.reward, 0);
-  const paid = approved.reduce((a, t) => a + t.reward, 0);
-  const ratio = planned > 0 ? Math.round((paid / planned) * 100) : 0;
+  // 支払い予定 = 承認済み earn 履歴で paidAt がない（=現金未渡し）の合計
+  const planned = state.history
+    .filter((h) => h.type === "earn" && h.status === "approved" && !h.paidAt)
+    .reduce((a, h) => a + h.amount, 0);
+  // 支払い済み = paidAt がついている earn 履歴の累計
+  const paid = state.history
+    .filter((h) => h.type === "earn" && h.status === "approved" && !!h.paidAt)
+    .reduce((a, h) => a + h.amount, 0);
+  const total = planned + paid;
+  const ratio = total > 0 ? Math.round((paid / total) * 100) : 0;
   const pendingBonusClaims = state.bonusClaims.filter((c) => c.status === "pending");
 
   return (
@@ -220,13 +226,18 @@ function Donut({ percent }: { percent: number }) {
 function TaskListPage({ onAdd, onEdit }: { onAdd: () => void; onEdit: (t: Task) => void }) {
   const { state, deleteTask, moveTask } = useStore();
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  // 承認済みタスクは一覧から非表示（完了したものは履歴で確認）
+  const visibleTasks = state.tasks.filter((t) => t.status !== "approved");
   return (
     <div className="px-4 space-y-2">
       <div className="flex justify-between items-center">
-        <div className="font-bold">タスク一覧（{state.tasks.length}）</div>
+        <div className="font-bold">タスク一覧（{visibleTasks.length}）</div>
         <button onClick={onAdd} className="btn-primary-parent text-xs">＋ 追加</button>
       </div>
-      {state.tasks.map((t, idx) => {
+      {visibleTasks.length === 0 && (
+        <div className="card px-4 py-6 text-center text-sm text-gray-400">表示するタスクはありません</div>
+      )}
+      {visibleTasks.map((t, idx) => {
         const child = state.users.find((u) => u.id === t.assignedChildId);
         const statusLabel = ({ active: "未着手", submitted: "申請中", approved: "完了", rejected: "やり直し" } as Record<string, string>)[t.status];
         return (
@@ -239,7 +250,7 @@ function TaskListPage({ onAdd, onEdit }: { onAdd: () => void; onEdit: (t: Task) 
               </div>
               <div className="flex flex-col gap-1">
                 <button onClick={() => moveTask(t.id, -1)} disabled={idx === 0} className="text-xs w-6 h-6 rounded bg-gray-100 disabled:opacity-30">↑</button>
-                <button onClick={() => moveTask(t.id, 1)} disabled={idx === state.tasks.length - 1} className="text-xs w-6 h-6 rounded bg-gray-100 disabled:opacity-30">↓</button>
+                <button onClick={() => moveTask(t.id, 1)} disabled={idx === visibleTasks.length - 1} className="text-xs w-6 h-6 rounded bg-gray-100 disabled:opacity-30">↓</button>
               </div>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2">
